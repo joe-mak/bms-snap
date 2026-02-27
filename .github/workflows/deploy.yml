@@ -22,17 +22,14 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: hurryup-vue/package-lock.json
       - run: npm ci
-        working-directory: hurryup-vue
       - run: npm run build
-        working-directory: hurryup-vue
         env:
           VITE_TAIGA_BASE_URL: ${{ vars.VITE_TAIGA_BASE_URL }}
           VITE_PROXY_URL: ${{ vars.VITE_PROXY_URL }}
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: hurryup-vue/dist
+          path: dist
 
   deploy:
     needs: build
