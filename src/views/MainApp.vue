@@ -7,6 +7,7 @@ import { useDateTime } from '../composables/useDateTime'
 import { useImages } from '../composables/useImages'
 import { useUtils } from '../composables/useUtils'
 import { useAI } from '../composables/useAI'
+import { useSupabase } from '../composables/useSupabase'
 
 import HeatmapCalendar from '../components/features/HeatmapCalendar.vue'
 import SettingsModal from '../components/features/SettingsModal.vue'
@@ -26,6 +27,7 @@ const { formattedDateTime, greeting, workdayProgress, todayFormatted } = useDate
 const { taskImages, processTaskImage, removeTaskImage, clearTaskImages, copyImageToClipboard } = useImages()
 const { stripHtml, copyToClipboard } = useUtils()
 const { isGenerating, generateReport } = useAI()
+const { signOut } = useSupabase()
 
 // Refs
 const heatmapRef = ref(null)
@@ -143,6 +145,17 @@ function openSettings(tab = 'personal') {
 
 function scrollToEditor() {
   document.querySelector('.quill-container')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
+async function handleLogout() {
+  try {
+    await signOut()
+    store.deleteAllData()
+    localStorage.clear()
+    router.push('/')
+  } catch (e) {
+    showToast('ออกจากระบบไม่สำเร็จ: ' + e.message)
+  }
 }
 
 function handleDataDeleted() {
@@ -325,18 +338,31 @@ onUnmounted(() => {
     <!-- Sticky Header -->
     <BaseHeader sticky :is-scrolled="isScrolled" bg-color="bg-[#fafafa]">
       <template #actions>
-        <button
-          class="flex items-center gap-2.5 py-1.5 pl-1.5 pr-3 bg-gray-50 border border-gray-200 rounded-full font-medium text-sm text-gray-700 cursor-pointer transition-all hover:bg-gray-100 hover:border-gray-300"
-          @click="openSettings('personal')">
-          <div class="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center overflow-hidden flex-shrink-0">
-            <img v-if="store.user.profileImage" :src="store.user.profileImage" alt="Profile"
-              class="w-full h-full object-cover rounded-full">
-            <IconUser v-else />
+        <div class="profile-dropdown-wrapper">
+          <button
+            class="flex items-center gap-2.5 py-1.5 pl-1.5 pr-3 bg-gray-50 border border-gray-200 rounded-full font-medium text-sm text-gray-700 cursor-pointer transition-all hover:bg-gray-100 hover:border-gray-300"
+            @click="openSettings('personal')">
+            <div class="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center overflow-hidden flex-shrink-0">
+              <img v-if="store.user.profileImage" :src="store.user.profileImage" alt="Profile"
+                class="w-full h-full object-cover rounded-full">
+              <IconUser v-else />
+            </div>
+            <span class="max-w-[120px] overflow-hidden text-ellipsis whitespace-nowrap">{{ store.user.name?.split(' ')[0]
+              || 'ผู้ใช้' }}</span>
+            <IconChevronDown class="text-gray-500 flex-shrink-0 transition-transform" />
+          </button>
+          <div class="profile-dropdown">
+            <button class="profile-dropdown-item" @click="openSettings('personal')">
+              <IconSettings class="w-4 h-4 text-gray-500" />
+              <span>ตั้งค่า</span>
+            </button>
+            <div class="border-t border-gray-100 my-1"></div>
+            <button class="profile-dropdown-item text-red-600 hover:bg-red-50" @click="handleLogout">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2h5a2 2 0 012 2v1" /></svg>
+              <span>ออกจากระบบ</span>
+            </button>
           </div>
-          <span class="max-w-[120px] overflow-hidden text-ellipsis whitespace-nowrap">{{ store.user.name?.split(' ')[0]
-            || 'ผู้ใช้' }}</span>
-          <IconChevronDown class="text-gray-500 flex-shrink-0 transition-transform group-hover:translate-y-0.5" />
-        </button>
+        </div>
       </template>
     </BaseHeader>
 
@@ -525,6 +551,54 @@ onUnmounted(() => {
 </template>
 
 <style>
+/* Profile Dropdown */
+.profile-dropdown-wrapper {
+  position: relative;
+}
+
+.profile-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 4px;
+  min-width: 180px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+  z-index: 200;
+}
+
+.profile-dropdown-wrapper:hover .profile-dropdown {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.profile-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.profile-dropdown-item:hover {
+  background: #f3f4f6;
+}
+
 /* ===== Mood Face (adapted from CodePen nolakat/bqExQd) ===== */
 .mood-face-wrapper {
   border: 3px solid #e5e7eb;

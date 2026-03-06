@@ -167,6 +167,7 @@ export const useAppStore = defineStore('app', () => {
           role: user.value.role,
           workplace: user.value.workplace,
           project_label: user.value.projectLabel,
+          morning_template: morningTemplate.value,
         })
       }
     } catch (e) {
@@ -244,6 +245,9 @@ export const useAppStore = defineStore('app', () => {
           role: profile.role || user.value.role,
           workplace: profile.workplace || user.value.workplace,
           projectLabel: profile.project_label || user.value.projectLabel,
+        }
+        if (profile.morning_template) {
+          morningTemplate.value = profile.morning_template
         }
       }
 
@@ -464,6 +468,7 @@ export const useAppStore = defineStore('app', () => {
   function setMorningTemplate(template) {
     morningTemplate.value = template
     saveData()
+    syncProfileToSupabase()
   }
 
   function toggleStamp(dateKey, type) {
