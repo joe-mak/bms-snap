@@ -168,6 +168,7 @@ export const useAppStore = defineStore('app', () => {
           workplace: user.value.workplace,
           project_label: user.value.projectLabel,
           morning_template: morningTemplate.value,
+          profile_image: user.value.profileImage,
         })
       }
     } catch (e) {
@@ -245,6 +246,7 @@ export const useAppStore = defineStore('app', () => {
           role: profile.role || user.value.role,
           workplace: profile.workplace || user.value.workplace,
           projectLabel: profile.project_label || user.value.projectLabel,
+          profileImage: profile.profile_image || user.value.profileImage,
         }
         if (profile.morning_template) {
           morningTemplate.value = profile.morning_template

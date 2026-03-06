@@ -20,9 +20,14 @@ export function useImages() {
         canvas.height = height
 
         const ctx = canvas.getContext('2d')
+        const isPng = base64String.startsWith('data:image/png')
+        if (!isPng) {
+          ctx.fillStyle = '#ffffff'
+          ctx.fillRect(0, 0, width, height)
+        }
         ctx.drawImage(img, 0, 0, width, height)
 
-        resolve(canvas.toDataURL('image/jpeg', quality))
+        resolve(isPng ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', quality))
       }
       img.onerror = () => resolve(base64String)
       img.src = base64String

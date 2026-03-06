@@ -9,9 +9,6 @@ import { IconUser, IconChevronDown } from '../components/icons'
 import PhysicsPills from '../components/features/PhysicsPills.vue'
 import FloatingPolaroids from '../components/features/FloatingPolaroids.vue'
 import FallingLetters from '../components/features/FallingLetters.vue'
-import TodayTemplate from '../components/features/TodayTemplate.vue'
-import TaigaTaskPicker from '../components/features/TaigaTaskPicker.vue'
-import { useTaiga } from '../composables/useTaiga'
 import emptyTemplateSvg from '../assets/empty-template.svg'
 import polaroidTopSvg from '../assets/polaroid-top.svg'
 import polaroidBottomSvg from '../assets/polaroid-bottom.svg'
@@ -78,36 +75,53 @@ function handleBack() {
   if (currentStep.value === 1) {
     router.push('/app')
   } else {
-    if (currentStep.value === 3) {
-      step3Visible.value = false
-      generatingVisible.value = false
-      reportSaved.value = false
-      convergeTarget.value = null
-    }
     currentStep.value--
   }
 }
 
 async function handleNext() {
   if (currentStep.value === 2) {
-    // Step 1: Freeze physics (stops RAF sync loop in all children)
+    // Save report immediately
+    if (isSaving.value || reportSaved.value) return
+    isSaving.value = true
+    try {
+      const selectedNames = selectedProjectIds.value
+        .map(id => store.projects.find(p => p.id === id)?.name)
+        .filter(Boolean)
+      store.addReport({
+        projects: [...selectedProjectIds.value],
+        projectNames: selectedNames,
+        contentHtml: editorContentHtml.value,
+        images: pastedImages.value.map(img => img.data),
+      })
+      reportSaved.value = true
+    } catch {
+      showToast('เกิดข้อผิดพลาดในการบันทึก')
+      isSaving.value = false
+      return
+    }
+    isSaving.value = false
+
+    // Play convergence animation then redirect
     isConverging.value = true
-    // Step 2: Wait for Vue to propagate frozen=true to children
     await nextTick()
-    // Step 3: Set converge target — children will tween their own reactive state
     const body = document.querySelector('.daily-flow-body')
     if (body) {
       convergeTarget.value = { x: body.offsetWidth / 2, y: body.offsetHeight * 0.4 }
     }
-    // Step 4: After animation plays, transition to step 3
-    setTimeout(() => { currentStep.value = 3 }, 800)
-  } else if (currentStep.value < 3) {
+    generatingVisible.value = true
+    await new Promise(r => setTimeout(r, 600))
+    isConverging.value = false
+    convergeTarget.value = null
+    await new Promise(r => setTimeout(r, 1500))
+    router.push('/app?saved=1')
+  } else if (currentStep.value < 2) {
     currentStep.value++
   }
 }
 
 // Auto-focus editor when entering step 2
-watch(currentStep, async (step, oldStep) => {
+watch(currentStep, async (step) => {
   if (step === 2) {
     await nextTick()
     setTimeout(() => {
@@ -123,22 +137,6 @@ watch(currentStep, async (step, oldStep) => {
     }, 350)
   }
 
-  // Convergence: step 2 → 3
-  if (step === 3 && oldStep === 2) {
-    // Show generating screen immediately — convergence continues behind it
-    generatingVisible.value = true
-    // Wait for generating screen to fully fade in, then clean up convergence
-    await new Promise(r => setTimeout(r, 600))
-    isConverging.value = false
-    convergeTarget.value = null
-    await new Promise(r => setTimeout(r, 1900))
-    generatingVisible.value = false
-    step3Visible.value = true
-  }
-
-  if (step < 3) {
-    step3Visible.value = false
-  }
 })
 
 // Falling letters
@@ -197,8 +195,14 @@ function compressImage(dataUrl, maxWidth = 600, quality = 0.7) {
       canvas.width = img.width * scale
       canvas.height = img.height * scale
       const ctx = canvas.getContext('2d')
+      // Check if image has transparency (PNG) — preserve alpha
+      const isPng = dataUrl.startsWith('data:image/png')
+      if (!isPng) {
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+      }
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-      resolve(canvas.toDataURL('image/jpeg', quality))
+      resolve(isPng ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', quality))
     }
     img.src = dataUrl
   })
@@ -271,86 +275,10 @@ function removeImage(id) {
 const isConverging = ref(false)
 const convergeTarget = ref(null)
 const generatingVisible = ref(false)
-const step3Visible = ref(false)
 const isSaving = ref(false)
 const reportSaved = ref(false)
-const showTaigaPicker = ref(false)
 
-const { isAuthenticated: isTaigaConnected } = useTaiga()
 
-const taigaProjects = computed(() => {
-  return selectedProjectIds.value
-    .map(id => store.projects.find(p => p.id === id))
-    .filter(p => p && p.taigaUrl)
-})
-
-const hasTaiga = computed(() => {
-  return isTaigaConnected() && taigaProjects.value.length > 0
-})
-
-function buildFullTemplateHtml() {
-  const name = store.user.name || 'ผู้ใช้'
-  const role = store.user.role || 'เจ้าหน้าที่ออกแบบ UX/UI'
-  const workplace = store.user.workplace || 'บริษัท'
-  const label = store.user.projectLabel || 'รายงานการทำงานประจำวัน เข้า Office (ฝ่ายพัฒนาระบบ)'
-  const now = new Date()
-  const thaiDate = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear() + 543}`
-
-  const header = `<p><strong>โครงการ :</strong> ${label}</p>` +
-    `<p><strong>สถานที่ปฏิบัติงาน :</strong> ${workplace}</p>` +
-    `<p><strong>ผู้ปฏิบัติงาน:</strong> ${name}</p>` +
-    `<p><strong>ตำแหน่ง:</strong> ${role}</p>` +
-    `<p><strong>งานประจำวันที่</strong> ${thaiDate}</p><hr>`
-
-  return header + editorContentHtml.value
-}
-
-function htmlToPlainText(html) {
-  const tmp = document.createElement('div')
-  tmp.innerHTML = html
-  tmp.querySelectorAll('li').forEach(li => { li.textContent = '• ' + li.textContent })
-  tmp.querySelectorAll('p, br, div, h1, h2, h3, h4, h5, h6').forEach(el => { el.before('\n') })
-  tmp.querySelectorAll('ol, ul').forEach(el => { el.before('\n') })
-  tmp.querySelectorAll('hr').forEach(el => { el.replaceWith('\n---\n') })
-  return tmp.textContent.replace(/\n{3,}/g, '\n\n').trim()
-}
-
-async function copyToClipboard() {
-  const fullHtml = buildFullTemplateHtml()
-  try {
-    const htmlBlob = new Blob([fullHtml], { type: 'text/html' })
-    const textBlob = new Blob([htmlToPlainText(fullHtml)], { type: 'text/plain' })
-    await navigator.clipboard.write([
-      new ClipboardItem({ 'text/html': htmlBlob, 'text/plain': textBlob })
-    ])
-  } catch {
-    await navigator.clipboard.writeText(htmlToPlainText(fullHtml))
-  }
-  showToast('คัดลอกเทมเพลตแล้ว')
-}
-
-async function saveReport() {
-  if (isSaving.value || reportSaved.value) return
-  isSaving.value = true
-  try {
-    const selectedNames = selectedProjectIds.value
-      .map(id => store.projects.find(p => p.id === id)?.name)
-      .filter(Boolean)
-    store.addReport({
-      projects: [...selectedProjectIds.value],
-      projectNames: selectedNames,
-      contentHtml: editorContentHtml.value,
-      images: pastedImages.value.map(img => img.data),
-    })
-    reportSaved.value = true
-    showToast('บันทึกรายงานเรียบร้อยแล้ว')
-    setTimeout(() => router.push('/app'), 1200)
-  } catch {
-    showToast('เกิดข้อผิดพลาดในการบันทึก')
-  } finally {
-    isSaving.value = false
-  }
-}
 
 onMounted(() => {
   document.addEventListener('paste', handleImagePaste, true)
@@ -364,7 +292,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="daily-flow-wrapper" :class="{ 'step3-bg': step3Visible || generatingVisible }">
+  <div class="daily-flow-wrapper" :class="{ 'step3-bg': generatingVisible }">
     <BaseHeader :show-border="false">
       <template #actions>
         <button
@@ -384,24 +312,24 @@ onUnmounted(() => {
     <div class="daily-flow-body">
       <!-- Physics pills background layer -->
       <div class="daily-flow-pills-bg">
-        <PhysicsPills :active="!step3Visible" :frozen="isConverging" :converge-target="convergeTarget" :extra-pills="selectedProjectPills" />
+        <PhysicsPills :active="true" :frozen="isConverging" :converge-target="convergeTarget" :extra-pills="selectedProjectPills" />
       </div>
 
       <!-- Falling letters layer -->
       <div v-show="currentStep <= 2 || isConverging" class="daily-flow-letters-bg">
         <FallingLetters
           :letters="droppedLetters"
-          :active="(currentStep <= 2 || isConverging) && !step3Visible"
+          :active="(currentStep <= 2 || isConverging) "
           :frozen="isConverging"
           :converge-target="convergeTarget"
         />
       </div>
 
       <!-- Floating polaroids layer (physics-driven, step 2) -->
-      <div v-show="(currentStep === 2 || isConverging) && !step3Visible" class="daily-flow-polaroids-bg">
+      <div v-show="(currentStep === 2 || isConverging) " class="daily-flow-polaroids-bg">
         <FloatingPolaroids
           :images="pastedImages"
-          :active="(currentStep === 2 || isConverging) && !step3Visible"
+          :active="(currentStep === 2 || isConverging) "
           :frozen="isConverging"
           :converge-target="convergeTarget"
           :exclude-center-width="580"
@@ -410,9 +338,9 @@ onUnmounted(() => {
       </div>
 
       <!-- Centered content -->
-      <div class="daily-flow-center" :class="{ 'step3-center': step3Visible || generatingVisible, 'converging-fade': isConverging && !generatingVisible }">
-        <!-- Steps indicator (hide on step 3) -->
-        <ul v-show="!step3Visible && !generatingVisible" class="steps steps-horizontal mb-6">
+      <div class="daily-flow-center" :class="{ 'step3-center': generatingVisible, 'converging-fade': isConverging && !generatingVisible }">
+        <!-- Steps indicator (hide during generating animation) -->
+        <ul v-show="!generatingVisible" class="steps steps-horizontal mb-6">
           <li class="step" :class="currentStep >= 1 ? 'step-primary' : ''">
             <span class="step-icon">1</span>
           </li>
@@ -422,7 +350,7 @@ onUnmounted(() => {
         </ul>
 
         <!-- Steps 1 & 2 content -->
-        <Transition v-if="!step3Visible && !generatingVisible" name="step-fade" mode="out-in">
+        <Transition v-if="!generatingVisible" name="step-fade" mode="out-in">
           <div :key="currentStep" class="daily-flow-step-inner">
             <h2 class="daily-flow-title">{{ currentStep === 2 ? 'รายละเอียดงานที่คุณทำวันนี้' : 'เลือกโครงการที่คุณทำวันนี้' }}</h2>
 
@@ -494,27 +422,8 @@ onUnmounted(() => {
           </div>
         </Transition>
 
-        <!-- Step 3: Template Ready -->
-        <Transition name="step3-reveal">
-          <TodayTemplate
-            v-if="step3Visible"
-            :content-html="editorContentHtml"
-            :images="pastedImages"
-            :user-name="store.user.name || 'ผู้ใช้'"
-            :user-role="store.user.role || 'เจ้าหน้าที่ออกแบบ UX/UI'"
-            :user-workplace="store.user.workplace || 'บริษัท'"
-            :project-label="store.user.projectLabel || 'รายงานการทำงานประจำวัน เข้า Office (ฝ่ายพัฒนาระบบ)'"
-            :is-saving="isSaving"
-            :report-saved="reportSaved"
-            :has-taiga="hasTaiga"
-            @copy="copyToClipboard"
-            @save="saveReport"
-            @post-taiga="showTaigaPicker = true"
-          />
-        </Transition>
-
-        <!-- Navigation (hide on step 3) -->
-        <div v-show="!step3Visible && !generatingVisible" class="daily-flow-nav">
+        <!-- Navigation -->
+        <div v-show="!generatingVisible" class="daily-flow-nav">
           <BaseButton variant="outline" size="lg" class="bg-white!" @click="handleBack">
             {{ currentStep === 1 ? 'กลับสู่หน้าหลัก' : 'ย้อนกลับ' }}
           </BaseButton>
@@ -531,14 +440,6 @@ onUnmounted(() => {
     </div>
   </div>
 
-  <TaigaTaskPicker
-    :show="showTaigaPicker"
-    :report-html="buildFullTemplateHtml()"
-    :projects="taigaProjects"
-    :images="pastedImages"
-    @close="showTaigaPicker = false"
-    @posted="showTaigaPicker = false"
-  />
 </template>
 
 <style scoped>
@@ -841,25 +742,6 @@ onUnmounted(() => {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none !important;
-}
-
-/* ===== Step 3 reveal transition ===== */
-.step3-reveal-enter-active {
-  transition: opacity 0.5s ease 0.1s, transform 0.5s ease 0.1s;
-}
-
-.step3-reveal-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-
-.step3-reveal-enter-from {
-  opacity: 0;
-  transform: scale(0.9) translateY(20px);
-}
-
-.step3-reveal-leave-to {
-  opacity: 0;
-  transform: scale(0.95);
 }
 
 /* ===== Generating Template Interstitial ===== */

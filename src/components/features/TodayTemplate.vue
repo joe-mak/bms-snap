@@ -1,7 +1,9 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { IconCopy, IconCheck } from '../icons'
+import BaseButton from '../ui/BaseButton.vue'
 import { useToast } from '../../composables/useToast'
+import taigaLogo from '../../assets/taiga-logo.svg'
 import decoCloud from '../../assets/deco-cloud.svg'
 import decoBubble from '../../assets/deco-bubble.svg'
 import decoSmiley from '../../assets/deco-smiley.svg'
@@ -18,6 +20,7 @@ const props = defineProps({
   isSaving: { type: Boolean, default: false },
   reportSaved: { type: Boolean, default: false },
   hasTaiga: { type: Boolean, default: false },
+  mode: { type: String, default: 'edit' },
 })
 
 const emit = defineEmits(['copy', 'save', 'postTaiga'])
@@ -73,6 +76,24 @@ const polaroidPositions = [
 const activePolaroids = computed(() => displayedPolaroids.value)
 
 function handleCopy() {
+  const dateLine = `งานประจำวันที่ ${thaiDate.value}`
+  const headerParts = []
+  if (props.projectLabel) headerParts.push(`โครงการ : ${props.projectLabel}`)
+  if (props.userWorkplace) headerParts.push(`สถานที่ปฏิบัติงาน : ${props.userWorkplace}`)
+  if (props.userName) headerParts.push(`ผู้ปฏิบัติงาน: ${props.userName}`)
+  if (props.userRole) headerParts.push(`ตำแหน่ง: ${props.userRole}`)
+  headerParts.push(dateLine)
+
+  const headerHtml = headerParts.map(p => `<p><strong>${p}</strong></p>`).join('')
+  const richHtml = headerHtml + (props.contentHtml || '')
+  const plainText = headerParts.join('\n') + '\n\n' + htmlToPlainText(props.contentHtml || '')
+
+  const blob = new Blob([richHtml], { type: 'text/html' })
+  const textBlob = new Blob([plainText], { type: 'text/plain' })
+  navigator.clipboard.write([
+    new ClipboardItem({ 'text/html': blob, 'text/plain': textBlob })
+  ])
+
   emit('copy')
   copySuccess.value = true
   showToast('คัดลอกทั้งหมดแล้ว')
@@ -213,18 +234,29 @@ async function copyPolaroidImage(dataUrl, idx) {
 
           <!-- Bottom action bar — sticky inside card -->
           <div class="today-template-bottom-bar">
-            <span class="today-template-bottom-label">รายงานการทำงานประจำวัน</span>
             <div class="today-template-bottom-actions">
-              <button v-if="hasTaiga" class="today-template-taiga-btn" @click="emit('postTaiga')">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                </svg>
-                <span>โพสต์ Taiga</span>
-              </button>
-              <button class="today-template-save-btn" :disabled="isSaving || reportSaved" @click="handleSave">
-                <IconCheck :size="18" color="white" />
-                <span>{{ reportSaved ? 'บันทึกแล้ว' : 'บันทึกรายงานวันนี้' }}</span>
-              </button>
+              <!-- Readonly mode (main page) -->
+              <template v-if="mode === 'readonly'">
+                <BaseButton v-if="hasTaiga" variant="outline" size="lg" @click="emit('postTaiga')">
+                  <img :src="taigaLogo" alt="Taiga" class="w-5 h-5">
+                  โพสต์ Taiga
+                </BaseButton>
+                <BaseButton variant="primary" size="lg" class="!bg-[var(--secondary-brand)] !border-[var(--secondary-brand)] !text-[var(--primary-brand)]">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                  แชร์ให้ผู้อื่น
+                </BaseButton>
+              </template>
+              <!-- Edit mode (daily flow) -->
+              <template v-else>
+                <BaseButton v-if="hasTaiga" variant="outline" size="md" @click="emit('postTaiga')">
+                  <img :src="taigaLogo" alt="Taiga" class="w-5 h-5">
+                  โพสต์ Taiga
+                </BaseButton>
+                <BaseButton variant="primary" size="md" class="!bg-[#16A34A] !border-[#16A34A] hover:!bg-[#15803D] hover:!shadow-[4px_4px_0px_rgba(22,163,74,0.2)]" :disabled="isSaving || reportSaved" @click="handleSave">
+                  <IconCheck :size="16" color="white" />
+                  {{ reportSaved ? 'บันทึกแล้ว' : 'บันทึกรายงานวันนี้' }}
+                </BaseButton>
+              </template>
             </div>
           </div>
         </div>
@@ -506,6 +538,7 @@ async function copyPolaroidImage(dataUrl, idx) {
   border: 1px solid #e5e5e5;
   border-radius: 2px;
   display: block;
+  background: #ffffff;
 }
 
 .today-template-polaroid-copy-icon {
@@ -559,74 +592,31 @@ async function copyPolaroidImage(dataUrl, idx) {
   bottom: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
+  justify-content: center;
+  padding: 18px 20px;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(8px);
   border-top: 1px solid #e5e5e5;
   border-radius: 0 0 16px 16px;
   flex-shrink: 0;
+  gap: 8px;
 }
 
 .today-template-bottom-label {
-  font-size: 0.95rem;
+  font-size: 0.8rem;
   font-weight: 500;
   color: #5f6368;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .today-template-bottom-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
-}
-
-.today-template-taiga-btn {
-  display: inline-flex;
-  align-items: center;
   gap: 8px;
-  padding: 12px 24px;
-  background: #194987;
-  color: white;
-  border: none;
-  border-radius: 9999px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 
-.today-template-taiga-btn:hover {
-  background: #0f3260;
-  transform: scale(1.02);
-  box-shadow: 0 4px 12px rgba(25, 73, 135, 0.3);
-}
-
-.today-template-save-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 28px;
-  background: #16A34A;
-  color: white;
-  border: none;
-  border-radius: 9999px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.today-template-save-btn:hover {
-  background: #15803D;
-  transform: scale(1.02);
-  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
-}
-
-.today-template-save-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none !important;
-}
 
 /* Decorative background elements */
 .deco {

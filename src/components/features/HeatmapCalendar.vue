@@ -125,6 +125,9 @@ const monthLabels = computed(() => {
   const year = selectedYear.value
   const startDate = new Date(year, 0, 1)
   const firstDayOfWeek = startDate.getDay()
+  const isLeapYear = (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0)
+  const totalDays = isLeapYear ? 366 : 365
+  const totalWeeks = Math.ceil((totalDays + firstDayOfWeek) / 7)
   const labels = []
 
   for (let month = 0; month < 12; month++) {
@@ -134,7 +137,7 @@ const monthLabels = computed(() => {
 
     labels.push({
       name: thaiMonthsShort[month],
-      position: weekOfMonth * 15
+      position: (weekOfMonth / totalWeeks) * 100
     })
   }
 
@@ -207,7 +210,7 @@ defineExpose({ closeDock })
           <span
             v-for="(label, index) in monthLabels"
             :key="index"
-            :style="{ left: label.position + 'px' }"
+            :style="{ left: label.position + '%' }"
           >
             {{ label.name }}
           </span>

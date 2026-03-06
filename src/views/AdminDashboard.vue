@@ -854,8 +854,9 @@ async function handleDeleteUser() {
               @click="toggleUserDetails(u.id)"
             >
               <div class="flex items-center gap-3 min-w-0">
-                <div class="w-10 h-10 rounded-full bg-[var(--surface)] flex items-center justify-center flex-shrink-0">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--secondary-text)" stroke-width="2">
+                <div class="w-10 h-10 rounded-full bg-[var(--surface)] flex items-center justify-center flex-shrink-0 overflow-hidden">
+                  <img v-if="u.profile_image" :src="u.profile_image" alt="" class="w-full h-full object-cover">
+                  <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--secondary-text)" stroke-width="2">
                     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
                     <circle cx="12" cy="7" r="4"/>
                   </svg>
