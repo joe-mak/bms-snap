@@ -57,9 +57,15 @@ function handleOverlayClick(e) {
           <button class="modal-close" @click="emit('close')">&times;</button>
         </div>
         <div class="report-view-content">
-          <p v-if="projectNames.length > 0" class="report-projects">
-            <strong>โครงการ:</strong> {{ projectNames.join(', ') }}
-          </p>
+          <!-- Template header -->
+          <div class="report-template-header">
+            <p><strong>โครงการ :</strong> {{ store.user.projectLabel || projectNames.join(', ') }}</p>
+            <p><strong>สถานที่ปฏิบัติงาน :</strong> {{ store.user.workplace || '–' }}</p>
+            <p><strong>ผู้ปฏิบัติงาน:</strong> {{ store.user.name || '–' }}</p>
+            <p><strong>ตำแหน่ง:</strong> {{ store.user.role || '–' }}</p>
+            <p><strong>ผลการปฏิบัติงานประจำวันที่</strong> {{ formattedDate }}</p>
+          </div>
+
           <div class="report-text-content">
             <div v-if="report.contentHtml" v-html="report.contentHtml" />
             <p v-else class="no-content">ไม่มีเนื้อหารายงาน</p>
@@ -89,9 +95,23 @@ function handleOverlayClick(e) {
   padding: 20px;
 }
 
-.report-projects {
+.report-template-header {
+  background: #f0f4f8;
+  border: 1px solid #d1d9e6;
+  border-radius: 10px;
+  padding: 16px 20px;
   margin-bottom: 16px;
-  color: #666;
+  line-height: 1.8;
+  font-size: 14px;
+  color: #374151;
+}
+
+.report-template-header p {
+  margin: 0;
+}
+
+.report-template-header strong {
+  color: #111827;
 }
 
 .report-text-content {

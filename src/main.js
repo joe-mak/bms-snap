@@ -6,6 +6,7 @@ import '@vueup/vue-quill/dist/vue-quill.snow.css'
 import App from './App.vue'
 import router from './router'
 import { useAppStore } from './stores/app'
+import { useSupabase } from './composables/useSupabase'
 
 import './assets/style.css'
 
@@ -13,13 +14,17 @@ const app = createApp(App)
 
 app.use(createPinia())
 
-// Load data before router setup
+// Load local data
 const store = useAppStore()
 store.loadData()
 
-app.use(router)
-
-// Register Quill globally
-app.component('QuillEditor', QuillEditor)
-
-app.mount('#app')
+// Init Supabase auth, then mount
+const { init } = useSupabase()
+init().then(() => {
+  // Load profile from Supabase if logged in
+  store.loadProfileFromSupabase()
+}).finally(() => {
+  app.use(router)
+  app.component('QuillEditor', QuillEditor)
+  app.mount('#app')
+})

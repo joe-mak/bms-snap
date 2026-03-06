@@ -6,6 +6,7 @@ import { useImages } from '../../composables/useImages'
 import { useUtils } from '../../composables/useUtils'
 import { useAI } from '../../composables/useAI'
 import { useTaiga } from '../../composables/useTaiga'
+import { useSupabase } from '../../composables/useSupabase'
 import ConfirmDialog from '../ui/ConfirmDialog.vue'
 import BaseInput from '../ui/BaseInput.vue'
 import BaseButton from '../ui/BaseButton.vue'
@@ -30,10 +31,12 @@ const { handleProfileImage: processProfileImage } = useImages()
 const { stripHtml, downloadFile } = useUtils()
 const { getProxyUrl, setProxyUrl } = useAI()
 const { isAuthenticated: isTaigaAuthenticated, getCredentials: getTaigaCredentials, login: taigaLogin, logout: taigaLogout, isLoading: taigaLoading, taigaError } = useTaiga()
+const { deleteAccount, user: supabaseUser } = useSupabase()
 
 const activeTab = ref('personal')
 const aiProxyUrl = ref('')
 const showDeleteConfirm = ref(false)
+const showDeleteAccountConfirm = ref(false)
 const showClearTodayConfirm = ref(false)
 const showClearAllReportsConfirm = ref(false)
 const isTestMode = import.meta.env.VITE_TEST_MODE === 'true'
@@ -178,12 +181,18 @@ function confirmDeleteAll() {
   showDeleteConfirm.value = true
 }
 
-function deleteAllData() {
-  store.deleteAllData()
-  showDeleteConfirm.value = false
-  emit('close')
-  emit('dataDeleted')
-  showToast('ลบข้อมูลทั้งหมดเรียบร้อยแล้ว')
+async function deleteAllData() {
+  try {
+    await deleteAccount()
+    store.deleteAllData()
+    localStorage.clear()
+    showDeleteConfirm.value = false
+    emit('close')
+    emit('dataDeleted')
+    showToast('ลบข้อมูลทั้งหมดเรียบร้อยแล้ว')
+  } catch (e) {
+    showToast('ลบข้อมูลไม่สำเร็จ: ' + e.message)
+  }
 }
 
 function clearTodayReport() {
@@ -196,6 +205,19 @@ function clearAllReports() {
   store.clearAllReports()
   showClearAllReportsConfirm.value = false
   showToast('ลบรายงานทั้งหมดแล้ว')
+}
+
+async function handleDeleteAccount() {
+  try {
+    await deleteAccount()
+    store.deleteAllData()
+    showDeleteAccountConfirm.value = false
+    emit('close')
+    emit('dataDeleted')
+    showToast('ลบบัญชีเรียบร้อยแล้ว')
+  } catch (e) {
+    showToast('ไม่สามารถลบบัญชีได้: ' + e.message)
+  }
 }
 
 // Project management
@@ -404,6 +426,15 @@ function saveCurrentTab() {
                 <BaseButton variant="danger" @click="confirmDeleteAll">
                   <IconDelete :size="18" color="currentColor" />
                   ลบข้อมูลทั้งหมด
+                </BaseButton>
+              </div>
+
+              <div v-if="supabaseUser" class="danger-zone" style="margin-top: 8px;">
+                <div class="settings-section-title" style="color: #c00;">ลบบัญชีผู้ใช้</div>
+                <p class="danger-zone-description">ลบบัญชีผู้ใช้และข้อมูลทั้งหมดจากระบบอย่างถาวร รวมถึงข้อมูลบนคลาวด์ ไม่สามารถกู้คืนได้</p>
+                <BaseButton variant="danger" @click="showDeleteAccountConfirm = true">
+                  <IconDelete :size="18" color="currentColor" />
+                  ลบบัญชีผู้ใช้
                 </BaseButton>
               </div>
             </div>
@@ -616,5 +647,15 @@ function saveCurrentTab() {
     :danger="true"
     @confirm="clearAllReports"
     @cancel="showClearAllReportsConfirm = false"
+  />
+
+  <ConfirmDialog
+    :show="showDeleteAccountConfirm"
+    title="ยืนยันการลบบัญชีผู้ใช้"
+    message="บัญชีผู้ใช้และข้อมูลทั้งหมดจะถูกลบอย่างถาวร ทั้งในเครื่องและบนคลาวด์ คุณแน่ใจหรือไม่?"
+    confirm-text="ลบบัญชี"
+    :danger="true"
+    @confirm="handleDeleteAccount"
+    @cancel="showDeleteAccountConfirm = false"
   />
 </template>

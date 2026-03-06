@@ -25,6 +25,12 @@ const routes = [
     name: 'daily-flow',
     component: () => import('../views/DailyFlowPage.vue'),
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/admin',
+    name: 'admin',
+    component: () => import('../views/AdminDashboard.vue'),
+    meta: { requiresAuth: true }
   }
 ]
 

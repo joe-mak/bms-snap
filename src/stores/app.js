@@ -151,12 +151,126 @@ export const useAppStore = defineStore('app', () => {
     })
   }
 
-  function setUser(userData) {
+  async function setUser(userData) {
     user.value = { ...user.value, ...userData }
     saveData()
+    await syncProfileToSupabase()
   }
 
-  function addProject(project) {
+  async function syncProfileToSupabase() {
+    try {
+      const { useSupabase } = await import('../composables/useSupabase')
+      const { user: authUser, upsertProfile } = useSupabase()
+      if (authUser.value) {
+        await upsertProfile({
+          name: user.value.name,
+          role: user.value.role,
+          workplace: user.value.workplace,
+          project_label: user.value.projectLabel,
+        })
+      }
+    } catch (e) {
+      console.warn('Supabase profile sync skipped:', e.message)
+    }
+  }
+
+  async function syncProjectsToSupabase() {
+    try {
+      const { useSupabase } = await import('../composables/useSupabase')
+      const { user: authUser, syncProjects } = useSupabase()
+      if (authUser.value) {
+        await syncProjects(projects.value)
+      }
+    } catch (e) {
+      console.warn('Supabase projects sync skipped:', e.message)
+    }
+  }
+
+  async function syncStampsToSupabase() {
+    try {
+      const { useSupabase } = await import('../composables/useSupabase')
+      const { user: authUser, syncStamps } = useSupabase()
+      if (authUser.value) {
+        await syncStamps(stamps.value)
+      }
+    } catch (e) {
+      console.warn('Supabase stamps sync skipped:', e.message)
+    }
+  }
+
+  async function syncReportLogToSupabase(date, projectCount) {
+    try {
+      const { useSupabase } = await import('../composables/useSupabase')
+      const { user: authUser, upsertReportLog } = useSupabase()
+      if (authUser.value) {
+        const d = new Date(date)
+        const dateKey = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+        await upsertReportLog(dateKey, projectCount)
+      }
+    } catch (e) {
+      console.warn('Supabase report log sync skipped:', e.message)
+    }
+  }
+
+  async function syncAllToSupabase() {
+    await Promise.all([
+      syncProfileToSupabase(),
+      syncProjectsToSupabase(),
+      syncStampsToSupabase(),
+    ])
+    // Sync all existing reports as report_logs
+    for (const report of reports.value) {
+      const projectCount = report.projects ? report.projects.length : 1
+      await syncReportLogToSupabase(report.date, projectCount)
+    }
+  }
+
+  async function loadFromSupabase() {
+    try {
+      const { useSupabase } = await import('../composables/useSupabase')
+      const { user: authUser, getProfile, getProjects, getStamps } = useSupabase()
+      if (!authUser.value) return
+
+      const [profile, supaProjects, supaStamps] = await Promise.all([
+        getProfile(),
+        getProjects(),
+        getStamps(),
+      ])
+
+      if (profile) {
+        user.value = {
+          ...user.value,
+          name: profile.name || user.value.name,
+          role: profile.role || user.value.role,
+          workplace: profile.workplace || user.value.workplace,
+          projectLabel: profile.project_label || user.value.projectLabel,
+        }
+      }
+
+      if (supaProjects.length > 0) {
+        projects.value = supaProjects.map((p, index) => ({
+          id: index + 1,
+          name: p.name,
+          taigaUrl: p.taiga_url || '',
+          template: p.template || DEFAULT_TEMPLATE,
+        }))
+      }
+
+      if (Object.keys(supaStamps).length > 0) {
+        stamps.value = supaStamps
+      }
+
+      saveData()
+    } catch (e) {
+      console.warn('Supabase load skipped:', e.message)
+    }
+  }
+
+  async function loadProfileFromSupabase() {
+    await loadFromSupabase()
+  }
+
+  async function addProject(project) {
     const newId = projects.value.length > 0
       ? Math.max(...projects.value.map(p => p.id)) + 1
       : 1
@@ -167,21 +281,24 @@ export const useAppStore = defineStore('app', () => {
       template: project.template || DEFAULT_TEMPLATE
     })
     saveData()
+    syncProjectsToSupabase()
     return newId
   }
 
-  function updateProject(projectId, data) {
+  async function updateProject(projectId, data) {
     const index = projects.value.findIndex(p => p.id === projectId)
     if (index > -1) {
       projects.value[index] = { ...projects.value[index], ...data }
       saveData()
+      syncProjectsToSupabase()
     }
   }
 
-  function deleteProject(projectId) {
+  async function deleteProject(projectId) {
     projects.value = projects.value.filter(p => p.id !== projectId)
     selectedProjects.value = selectedProjects.value.filter(id => id !== projectId)
     saveData()
+    syncProjectsToSupabase()
   }
 
   function toggleProject(projectId) {
@@ -199,12 +316,15 @@ export const useAppStore = defineStore('app', () => {
 
   function addReport(report) {
     const today = new Date().toDateString()
+    const now = new Date().toISOString()
     lastReportDate.value = today
     reports.value.push({
-      date: new Date().toISOString(),
+      date: now,
       ...report
     })
     saveData()
+    const projectCount = report.projects ? report.projects.length : 1
+    syncReportLogToSupabase(now, projectCount)
   }
 
   function updateTodayReport(report) {
@@ -213,6 +333,9 @@ export const useAppStore = defineStore('app', () => {
     if (existingIndex > -1) {
       reports.value[existingIndex] = { ...reports.value[existingIndex], ...report }
       saveData()
+      const updated = reports.value[existingIndex]
+      const projectCount = updated.projects ? updated.projects.length : 1
+      syncReportLogToSupabase(updated.date, projectCount)
     }
   }
 
@@ -221,7 +344,7 @@ export const useAppStore = defineStore('app', () => {
     return reports.value.find(r => new Date(r.date).toDateString() === dateString)
   }
 
-  function completeOnboarding(userData, projectsList) {
+  async function completeOnboarding(userData, projectsList) {
     user.value = { ...user.value, ...userData }
     projects.value = projectsList.map((p, index) => ({
       ...p,
@@ -230,6 +353,7 @@ export const useAppStore = defineStore('app', () => {
     }))
     onboardingComplete.value = true
     saveData()
+    await syncAllToSupabase()
   }
 
   function importData(importedData) {
@@ -316,6 +440,7 @@ export const useAppStore = defineStore('app', () => {
     lastReportDate.value = null
     stamps.value = {}
     saveData()
+    syncStampsToSupabase()
   }
 
   function deleteAllData() {
@@ -349,6 +474,7 @@ export const useAppStore = defineStore('app', () => {
     }
     stamps.value = { ...stamps.value }
     saveData()
+    syncStampsToSupabase()
   }
 
   return {
@@ -387,6 +513,12 @@ export const useAppStore = defineStore('app', () => {
     deleteAllData,
     setMorningTemplate,
     toggleStamp,
+    syncProfileToSupabase,
+    syncProjectsToSupabase,
+    syncStampsToSupabase,
+    syncAllToSupabase,
+    loadFromSupabase,
+    loadProfileFromSupabase,
 
     // Constants
     DEFAULT_TEMPLATE

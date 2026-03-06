@@ -4,11 +4,15 @@ import { useRouter } from 'vue-router'
 import { useTaiga } from '../composables/useTaiga'
 import { useAI } from '../composables/useAI'
 import { useToast } from '../composables/useToast'
+import { useSupabase } from '../composables/useSupabase'
+import { useAppStore } from '../stores/app'
 import BaseInput from '../components/ui/BaseInput.vue'
 import BaseButton from '../components/ui/BaseButton.vue'
 import ImportModal from '../components/ImportModal.vue'
 
 const { showToast } = useToast()
+const { signIn, signUp, getProfile } = useSupabase()
+const store = useAppStore()
 
 const router = useRouter()
 const showImportModal = ref(false)
@@ -57,11 +61,42 @@ async function handleTaigaLogin() {
     return
   }
 
-  // Fetch projects before navigating
+  // Auto sign in/up to Supabase using Taiga credentials
+  try {
+    await signIn(user, pass)
+  } catch {
+    try {
+      await signUp(user, pass)
+      await signIn(user, pass)
+    } catch (e) {
+      console.warn('Supabase auth skipped:', e.message)
+    }
+  }
+
+  // Check if returning user (already has profile in Supabase)
+  try {
+    const profile = await getProfile()
+    if (profile && profile.name) {
+      // Returning user — load data from Supabase and go straight to app
+      await store.loadFromSupabase()
+      store.onboardingComplete = true
+      store.saveData()
+      // Also sync any local data that might be newer
+      await store.syncAllToSupabase()
+      loginState.value = 'idle'
+      showToast('ยินดีต้อนรับกลับ!', 3000, 'success')
+      router.push('/app')
+      return
+    }
+  } catch (e) {
+    console.warn('Profile check skipped:', e.message)
+  }
+
+  // New user — sync existing local data, fetch Taiga projects, go to onboarding
+  await store.syncAllToSupabase()
+
   try {
     const projectsData = await getUserProjects(proxy)
-    console.log('Taiga projects:', projectsData)
-    // Store in sessionStorage so OnboardingPage can pick them up
     sessionStorage.setItem('hurryup_fetched_projects', JSON.stringify(projectsData || []))
     sessionStorage.setItem('hurryup_login_name', result.fullName || '')
   } catch (err) {
