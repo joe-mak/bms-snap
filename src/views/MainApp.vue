@@ -494,6 +494,7 @@ onUnmounted(() => {
         :report-saved="true"
         :is-saving="false"
         :has-taiga="hasTaiga"
+        :report-project-ids="todayReport.projects || []"
         mode="readonly"
         @post-taiga="showTaigaPicker = true"
       />

@@ -3,6 +3,8 @@ import { ref, computed } from 'vue'
 import { IconCopy, IconCheck } from '../icons'
 import BaseButton from '../ui/BaseButton.vue'
 import { useToast } from '../../composables/useToast'
+import { useTaiga } from '../../composables/useTaiga'
+import { useAI } from '../../composables/useAI'
 import { useAppStore } from '../../stores/app'
 import taigaLogo from '../../assets/taiga-logo.svg'
 import decoCloud from '../../assets/deco-cloud.svg'
@@ -23,6 +25,7 @@ const props = defineProps({
   hasTaiga: { type: Boolean, default: false },
   mode: { type: String, default: 'edit' },
   debug: { type: Boolean, default: false },
+  reportProjectIds: { type: Array, default: () => [] },
 })
 
 const emit = defineEmits(['copy', 'save', 'postTaiga'])
@@ -47,12 +50,40 @@ function onSectionEnter(i, e) {
     top: rect.top + rect.height / 2,
     left: rect.right
   }
+  // Prefetch Taiga tasks in background
+  prefetchTaigaItems(i)
+
+  // If Taiga submenu is already open, update to new section's project
+  if (taigaSubmenuOpen.value) {
+    const project = getSectionProject(i)
+    if (project) {
+      taigaSectionProject.value = project.id
+      const cached = taigaCache.get(project.id)
+      if (cached !== undefined && cached !== null) {
+        taigaItems.value = cached
+        taigaLoading.value = false
+      } else {
+        taigaItems.value = []
+        taigaLoading.value = true
+      }
+    } else {
+      // No Taiga project for this section — close submenu
+      taigaSubmenuOpen.value = false
+      taigaItems.value = []
+      taigaLoading.value = false
+      taigaSectionProject.value = null
+    }
+  }
 }
 
 function scheduleHide() {
   clearTimeout(hideTimeout)
   hideTimeout = setTimeout(() => {
     hoveredSectionIdx.value = -1
+    taigaSubmenuOpen.value = false
+    taigaItems.value = []
+    taigaLoading.value = false
+    taigaSectionProject.value = null
   }, 300)
 }
 
@@ -165,26 +196,100 @@ function copySection(html, idx) {
   setTimeout(() => { sectionCopyIdx.value = -1 }, 1500)
 }
 
-function getSectionTaigaUrl(html) {
-  const tmp = document.createElement('div')
-  tmp.innerHTML = html
-  const text = tmp.textContent || ''
-  const match = text.match(/โครงการ\s*[:\s]\s*(.+?)(?:\n|$)/)
-  if (!match) return null
-  const name = match[1].trim()
-  const project = store.projects.find(p => p.name === name)
-  return project?.taigaUrl || null
+// Get the project for the currently hovered section
+function getSectionProject(sectionIdx) {
+  const projectId = props.reportProjectIds[sectionIdx]
+  if (!projectId) return null
+  return store.projects.find(p => p.id === projectId && p.taigaUrl) || null
 }
 
-function copySectionTaigaUrl(html, idx) {
-  const url = getSectionTaigaUrl(html)
-  if (!url) {
-    showToast('ไม่พบ Taiga URL สำหรับโครงการนี้')
+const taigaSubmenuOpen = ref(false)
+const taigaLoading = ref(false)
+const taigaItems = ref([])
+const taigaSectionProject = ref(null)
+const taigaCache = new Map() // projectId → items[]
+
+async function prefetchTaigaItems(sectionIdx) {
+  const project = getSectionProject(sectionIdx)
+  if (!project || taigaCache.has(project.id)) return
+
+  const { isAuthenticated, resolveProject, getMyTasks, getMyUserStories, extractSlugFromUrl, getCredentials } = useTaiga()
+  if (!isAuthenticated()) return
+
+  const { getProxyUrl } = useAI()
+  const proxyUrl = getProxyUrl()
+  const creds = getCredentials()
+  const slug = extractSlugFromUrl(project.taigaUrl)
+  if (!slug) return
+
+  // Mark as loading to prevent duplicate fetches
+  taigaCache.set(project.id, null)
+
+  try {
+    const resolved = await resolveProject(proxyUrl, slug)
+    const projectId = resolved.project
+    const [tasks, userStories] = await Promise.all([
+      getMyTasks(proxyUrl, projectId).catch(() => []),
+      getMyUserStories(proxyUrl, projectId).catch(() => []),
+    ])
+    const items = [
+      ...tasks.map(t => ({ ...t, _type: 'task', _slug: slug, _baseUrl: creds.baseUrl })),
+      ...userStories.map(us => ({ ...us, _type: 'userstory', _slug: slug, _baseUrl: creds.baseUrl })),
+    ]
+    taigaCache.set(project.id, items)
+
+    // If user is still hovering same section, update reactive state
+    if (taigaSectionProject.value === project.id) {
+      taigaItems.value = items
+      taigaLoading.value = false
+    }
+  } catch (err) {
+    console.error(`Failed to load items for ${project.name}:`, err)
+    taigaCache.set(project.id, [])
+    if (taigaSectionProject.value === project.id) {
+      taigaItems.value = []
+      taigaLoading.value = false
+    }
+  }
+}
+
+function openTaigaSubmenu() {
+  const project = getSectionProject(hoveredSectionIdx.value)
+  if (!project) {
+    showToast('โครงการนี้ไม่มี Taiga URL')
     return
   }
+
+  taigaSubmenuOpen.value = true
+  taigaSectionProject.value = project.id
+
+  const cached = taigaCache.get(project.id)
+  if (cached !== undefined && cached !== null) {
+    // Already fetched
+    taigaItems.value = cached
+    taigaLoading.value = false
+  } else {
+    // Still loading (prefetch in progress) or not started
+    taigaItems.value = []
+    taigaLoading.value = true
+    if (!taigaCache.has(project.id)) {
+      prefetchTaigaItems(hoveredSectionIdx.value)
+    }
+  }
+}
+
+function getTaigaItemUrl(item) {
+  const type = item._type === 'userstory' ? 'us' : 'task'
+  return `${item._baseUrl}/project/${item._slug}/${type}/${item.ref}`
+}
+
+function copyTaigaItemUrl(item) {
+  const url = getTaigaItemUrl(item)
   navigator.clipboard.writeText(url)
-  sectionCopyTaigaIdx.value = idx
-  showToast('คัดลอก Taiga URL แล้ว')
+  taigaSubmenuOpen.value = false
+  sectionCopyTaigaIdx.value = hoveredSectionIdx.value
+  const typeLabel = item._type === 'userstory' ? 'US' : 'Task'
+  showToast(`คัดลอก URL: ${typeLabel} #${item.ref}`)
   setTimeout(() => { sectionCopyTaigaIdx.value = -1 }, 1500)
 }
 
@@ -327,11 +432,32 @@ async function copyPolaroidImage(dataUrl, idx) {
           <IconCopy v-else :size="14" color="#194987" />
           <span>{{ sectionCopyIdx === hoveredSectionIdx ? 'คัดลอกแล้ว' : 'คัดลอกข้อความ' }}</span>
         </button>
-        <button v-if="debug || getSectionTaigaUrl(contentSections[hoveredSectionIdx])" class="section-menu-btn" @click="copySectionTaigaUrl(contentSections[hoveredSectionIdx], hoveredSectionIdx)">
-          <IconCheck v-if="sectionCopyTaigaIdx === hoveredSectionIdx" :size="14" color="#16A34A" />
-          <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#194987" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-          <span>{{ sectionCopyTaigaIdx === hoveredSectionIdx ? 'คัดลอกแล้ว' : 'คัดลอก Taiga URL' }}</span>
-        </button>
+        <template v-if="debug || getSectionProject(hoveredSectionIdx)">
+          <div v-if="!taigaSubmenuOpen" class="section-menu-btn" @click="openTaigaSubmenu">
+            <IconCheck v-if="sectionCopyTaigaIdx === hoveredSectionIdx" :size="14" color="#16A34A" />
+            <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#194987" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            <span>{{ sectionCopyTaigaIdx === hoveredSectionIdx ? 'คัดลอกแล้ว' : 'คัดลอก Taiga URL' }}</span>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#194987" stroke-width="2.5" style="margin-left:2px"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+          <template v-else>
+            <div class="taiga-group-label">{{ store.projects.find(p => p.id === taigaSectionProject)?.name }}</div>
+            <div v-if="taigaLoading" class="section-menu-btn taiga-loading">
+              <div class="taiga-mini-spinner"></div>
+              <span>กำลังโหลด...</span>
+            </div>
+            <template v-else-if="taigaItems.length > 0">
+              <button v-for="item in taigaItems" :key="item._type + '-' + item.id"
+                class="section-menu-btn taiga-item-btn" @click="copyTaigaItemUrl(item)">
+                <span class="taiga-type-badge" :class="item._type">{{ item._type === 'userstory' ? 'US' : 'Task' }}</span>
+                <span class="taiga-item-ref">#{{ item.ref }}</span>
+                <span class="taiga-item-subject">{{ item.subject }}</span>
+              </button>
+            </template>
+            <div v-else class="section-menu-btn taiga-loading">
+              <span>ไม่พบงาน</span>
+            </div>
+          </template>
+        </template>
       </div>
     </Transition>
   </Teleport>
@@ -773,6 +899,74 @@ async function copyPolaroidImage(dataUrl, idx) {
 
 .section-dropdown-teleport .section-menu-btn:hover {
   background: #f0f7ff;
+}
+
+.section-dropdown-teleport .taiga-group-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 14px 0;
+}
+
+.section-dropdown-teleport .taiga-item-btn {
+  font-size: 0.75rem;
+  color: #374151;
+  gap: 5px;
+}
+
+.section-dropdown-teleport .taiga-item-subject {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.section-dropdown-teleport .taiga-item-ref {
+  font-weight: 700;
+  color: #194987;
+  font-size: 0.7rem;
+}
+
+.section-dropdown-teleport .taiga-type-badge {
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.section-dropdown-teleport .taiga-type-badge.task {
+  background: #e0f0e0;
+  color: #2a7a2a;
+}
+
+.section-dropdown-teleport .taiga-type-badge.userstory {
+  background: #e0e8f5;
+  color: #3a5a9a;
+}
+
+.section-dropdown-teleport .taiga-loading {
+  color: #999;
+  cursor: default;
+}
+
+.section-dropdown-teleport .taiga-loading:hover {
+  background: white;
+}
+
+.taiga-mini-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #e5e5e5;
+  border-top-color: #194987;
+  border-radius: 50%;
+  animation: taiga-mini-spin 0.8s linear infinite;
+}
+
+@keyframes taiga-mini-spin {
+  to { transform: rotate(360deg); }
 }
 
 .dropdown-enter-active,

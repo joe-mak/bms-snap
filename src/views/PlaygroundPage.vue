@@ -18,6 +18,7 @@ const todayReport = store.getReportByDate(new Date())
       :project-label="store.user.projectLabel || ''"
       :report-saved="true"
       :is-saving="false"
+      :report-project-ids="todayReport?.projects || []"
       mode="readonly"
       :debug="true"
     />
