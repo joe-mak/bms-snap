@@ -21,7 +21,9 @@ const currentStep = ref(1)
 const selectedProjectIds = ref([])
 
 // Editor
+const MAX_EDITOR_CHARS = 1000
 const editorContentHtml = ref('')
+const editorTextLength = ref(0)
 const toolbarOptions = [
   ['bold', 'italic', 'underline', 'strike'],
   [{ 'list': 'ordered' }, { 'list': 'bullet' }],
@@ -154,7 +156,7 @@ function handleKeyDown(e) {
     return
   }
 
-  if (e.key.length === 1 && droppedLetters.value.length < MAX_DROPPED_LETTERS) {
+  if (e.key.length === 1 && editorTextLength.value < MAX_EDITOR_CHARS && droppedLetters.value.length < MAX_DROPPED_LETTERS) {
     droppedLetters.value.push({ id: Date.now() + Math.random(), char: e.key })
   }
 }
@@ -166,6 +168,17 @@ watch(editorContentHtml, (newHtml) => {
   const div = document.createElement('div')
   div.innerHTML = newHtml
   const currentLength = (div.textContent || '').length
+  editorTextLength.value = currentLength
+
+  // Enforce character limit — trim excess from Quill
+  if (currentLength > MAX_EDITOR_CHARS) {
+    nextTick(() => {
+      const editor = document.querySelector('#dailyEditorContainer .ql-editor')
+      if (editor && editor.__quill) {
+        editor.__quill.deleteText(MAX_EDITOR_CHARS, currentLength - MAX_EDITOR_CHARS)
+      }
+    })
+  }
 
   if (currentStep.value === 2 && currentLength < lastEditorTextLength && droppedLetters.value.length > 0) {
     const charsDeleted = lastEditorTextLength - currentLength
@@ -180,7 +193,7 @@ watch(editorContentHtml, (newHtml) => {
     keydownRemoveCount = 0
   }
 
-  lastEditorTextLength = currentLength
+  lastEditorTextLength = Math.min(currentLength, MAX_EDITOR_CHARS)
 })
 
 // Paste screenshots
@@ -232,10 +245,12 @@ function handleImagePaste(e) {
     e.preventDefault()
     e.stopPropagation()
   } else {
-    // Text paste — create falling letters for each character
+    // Text paste — create falling letters for each character (respect char limit)
     const text = e.clipboardData?.getData('text/plain')
     if (text) {
-      for (const char of text) {
+      const remaining = MAX_EDITOR_CHARS - editorTextLength.value
+      const allowed = text.slice(0, Math.max(0, remaining))
+      for (const char of allowed) {
         if (droppedLetters.value.length >= MAX_DROPPED_LETTERS) break
         if (char.trim()) {
           droppedLetters.value.push({ id: Date.now() + Math.random(), char })
@@ -499,7 +514,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  max-width: 520px;
+  max-width: 640px;
   width: 100%;
   margin: 0 auto;
   padding: 48px 0 0;

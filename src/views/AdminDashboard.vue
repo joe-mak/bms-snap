@@ -1,12 +1,12 @@
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
-import * as d3 from 'd3'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSupabase } from '../composables/useSupabase'
 import { useToast } from '../composables/useToast'
 import { useDateTime } from '../composables/useDateTime'
 import BaseButton from '../components/ui/BaseButton.vue'
 import ConfirmDialog from '../components/ui/ConfirmDialog.vue'
+import VueApexCharts from 'vue3-apexcharts'
 import { Bar, Doughnut, Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -76,7 +76,6 @@ async function loadData() {
     showToast('โหลดข้อมูลไม่สำเร็จ: ' + e.message)
   }
   loading.value = false
-  nextTick(() => renderBubbleChart())
 }
 
 // --- User name lookup ---
@@ -379,13 +378,10 @@ const activeUsersLast7Days = computed(() => {
   return activeIds.size
 })
 
-// --- Most contributed projects (D3 bubble chart) ---
-const bubbleColors = ['#f472b6', '#818cf8', '#34d399', '#fbbf24', '#f87171', '#60a5fa', '#a78bfa', '#fb923c', '#2dd4bf', '#e879f9']
-const bubbleSvgRef = ref(null)
-const hoveredBubble = ref(null)
-const tooltipPos = ref({ x: 0, y: 0 })
+// --- Most contributed projects (Treemap) ---
+const treemapColors = ['#f472b6', '#818cf8', '#34d399', '#fbbf24', '#f87171', '#60a5fa', '#a78bfa', '#fb923c', '#2dd4bf', '#e879f9']
 
-const projectBubbleData = computed(() => {
+const projectTreemapData = computed(() => {
   // Get today's date_key
   const today = new Date()
   const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`
@@ -410,99 +406,44 @@ const projectBubbleData = computed(() => {
   return Object.entries(counts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
-    .map(([name, count]) => ({ name, count }))
+    .map(([name, count]) => ({ x: name, y: count }))
 })
 
-function renderBubbleChart() {
-  const container = bubbleSvgRef.value
-  if (!container) return
+const treemapSeries = computed(() => [{
+  data: projectTreemapData.value
+}])
 
-  const data = projectBubbleData.value
-  if (data.length === 0) return
-
-  // Clear previous
-  d3.select(container).selectAll('*').remove()
-
-  const width = container.clientWidth || 300
-  const height = 240
-
-  const svg = d3.select(container)
-    .attr('width', width)
-    .attr('height', height)
-    .attr('viewBox', `0 0 ${width} ${height}`)
-
-  // Create hierarchy & pack layout
-  const root = d3.hierarchy({ children: data })
-    .sum(d => d.count)
-
-  d3.pack()
-    .size([width, height])
-    .padding(4)(root)
-
-  const nodes = root.leaves()
-
-  // Create groups for each bubble
-  const node = svg.selectAll('g')
-    .data(nodes)
-    .join('g')
-    .attr('transform', d => `translate(${d.x},${d.y})`)
-    .style('cursor', 'pointer')
-
-  // Circles
-  node.append('circle')
-    .attr('r', 0)
-    .attr('fill', (d, i) => bubbleColors[i % bubbleColors.length])
-    .attr('opacity', 0.85)
-    .attr('stroke', (d, i) => bubbleColors[i % bubbleColors.length])
-    .attr('stroke-width', 2)
-    .attr('stroke-opacity', 0.3)
-    .transition()
-    .duration(600)
-    .ease(d3.easeCubicOut)
-    .attr('r', d => d.r)
-
-  // Hover effects
-  node.on('mouseenter', function (_event, d) {
-    d3.select(this).select('circle')
-      .transition().duration(200)
-      .attr('opacity', 1)
-      .attr('r', d.r * 1.08)
-    hoveredBubble.value = d.data
-    tooltipPos.value = { x: d.x, y: d.y - d.r - 10 }
-  })
-  .on('mouseleave', function (_event, d) {
-    d3.select(this).select('circle')
-      .transition().duration(200)
-      .attr('opacity', 0.85)
-      .attr('r', d.r)
-    hoveredBubble.value = null
-  })
-
-  // Labels — only show if bubble is big enough
-  node.filter(d => d.r > 22)
-    .append('text')
-    .attr('text-anchor', 'middle')
-    .attr('dy', '-0.3em')
-    .attr('fill', '#fff')
-    .attr('font-size', d => Math.max(8, Math.min(d.r / 3.5, 13)) + 'px')
-    .attr('font-weight', 600)
-    .attr('pointer-events', 'none')
-    .text(d => d.data.name.length > d.r / 5 ? d.data.name.slice(0, Math.floor(d.r / 5)) + '…' : d.data.name)
-
-  node.filter(d => d.r > 22)
-    .append('text')
-    .attr('text-anchor', 'middle')
-    .attr('dy', '1em')
-    .attr('fill', '#fff')
-    .attr('font-size', d => Math.max(10, Math.min(d.r / 3, 16)) + 'px')
-    .attr('font-weight', 700)
-    .attr('pointer-events', 'none')
-    .text(d => d.data.count)
-}
-
-watch(projectBubbleData, () => {
-  nextTick(() => renderBubbleChart())
-})
+const treemapOptions = computed(() => ({
+  chart: {
+    type: 'treemap',
+    toolbar: { show: false },
+    animations: {
+      enabled: true,
+      speed: 600,
+    },
+  },
+  colors: treemapColors,
+  plotOptions: {
+    treemap: {
+      distributed: true,
+      enableShades: false,
+    },
+  },
+  dataLabels: {
+    enabled: true,
+    style: {
+      fontSize: '13px',
+      fontWeight: 600,
+    },
+    formatter: (text, op) => `${text}: ${op.value} คน`,
+  },
+  tooltip: {
+    y: {
+      formatter: (val) => `${val} คน`,
+    },
+  },
+  legend: { show: false },
+}))
 
 
 // --- Top contributors (for summary card) ---
@@ -671,29 +612,22 @@ async function handleDeleteUser() {
             </div>
 
             <!-- Activity Trend -->
-            <div class="bg-white rounded-2xl border border-gray-200 p-5">
+            <div class="bg-white rounded-2xl border border-gray-200 p-5 lg:col-span-2">
               <h2 class="text-sm font-semibold text-[var(--primary-text)] mb-3">แนวโน้มกิจกรรม (30 วัน)</h2>
               <div class="h-[220px]">
                 <Line :data="activityTrendData" :options="lineChartOptions" />
               </div>
             </div>
 
-            <!-- Project Bubbles (D3) -->
-            <div class="bg-white rounded-2xl border border-gray-200 p-5">
-              <h2 class="text-sm font-semibold text-[var(--primary-text)] mb-3">โครงการที่มีส่วนร่วมวันนี้</h2>
-              <div class="bubble-chart-wrapper">
-                <svg ref="bubbleSvgRef" class="bubble-svg"></svg>
-                <div
-                  v-if="hoveredBubble"
-                  class="bubble-tooltip"
-                  :style="{ left: tooltipPos.x + 'px', top: tooltipPos.y + 'px' }"
-                >
-                  <div class="font-semibold text-sm">{{ hoveredBubble.name }}</div>
-                  <div class="text-xs text-gray-500">{{ hoveredBubble.count }} คน</div>
-                </div>
-                <p v-if="projectBubbleData.length === 0" class="text-sm text-[var(--secondary-text)] text-center w-full py-8">ยังไม่มีข้อมูล</p>
-              </div>
+          </div>
+
+          <!-- Row 2.5: Project Treemap (full width) -->
+          <div class="bg-white rounded-2xl border border-gray-200 p-5">
+            <h2 class="text-sm font-semibold text-[var(--primary-text)] mb-3">โครงการที่มีส่วนร่วมวันนี้</h2>
+            <div v-if="projectTreemapData.length > 0" class="treemap-chart-wrapper">
+              <VueApexCharts type="treemap" height="300" :options="treemapOptions" :series="treemapSeries" />
             </div>
+            <p v-else class="text-sm text-[var(--secondary-text)] text-center w-full py-8">ยังไม่มีข้อมูล</p>
           </div>
 
           <!-- Row 3: Heatmap -->
@@ -754,12 +688,12 @@ async function handleDeleteUser() {
               </section>
             </div>
 
-            <div class="flex items-center gap-2 mt-3 text-xs text-[var(--secondary-text)]">
+            <div class="flex items-center justify-end gap-2 mt-3 text-xs text-[var(--secondary-text)]">
               <span>น้อย</span>
-              <div class="heatmap-day level-0" style="display:inline-block;"></div>
-              <div class="heatmap-day level-1" style="display:inline-block;"></div>
-              <div class="heatmap-day level-2" style="display:inline-block;"></div>
-              <div class="heatmap-day level-3" style="display:inline-block;"></div>
+              <div class="legend-box level-0"></div>
+              <div class="legend-box level-1"></div>
+              <div class="legend-box level-2"></div>
+              <div class="legend-box level-3"></div>
               <span>มาก</span>
             </div>
 
@@ -988,40 +922,9 @@ async function handleDeleteUser() {
   background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
 }
 
-/* D3 Bubble Chart */
-.bubble-chart-wrapper {
-  position: relative;
+/* Treemap Chart */
+.treemap-chart-wrapper {
   min-height: 240px;
-}
-
-.bubble-svg {
-  width: 100%;
-  height: 240px;
-  display: block;
-}
-
-.bubble-tooltip {
-  position: absolute;
-  transform: translate(-50%, -100%);
-  background: #1e293b;
-  color: #fff;
-  padding: 6px 12px;
-  border-radius: 8px;
-  pointer-events: none;
-  white-space: nowrap;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  z-index: 10;
-}
-
-.bubble-tooltip::after {
-  content: '';
-  position: absolute;
-  bottom: -5px;
-  left: 50%;
-  transform: translateX(-50%);
-  border-left: 6px solid transparent;
-  border-right: 6px solid transparent;
-  border-top: 6px solid #1e293b;
 }
 
 </style>

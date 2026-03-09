@@ -20,6 +20,8 @@ export const useAppStore = defineStore('app', () => {
   const onboardingComplete = ref(false)
   const morningTemplate = ref('{name}\nงานประจำวันที่ {date}\n- ')
   const stamps = ref({})
+  const reportLogs = ref({})
+  const supabaseLoaded = ref(false)
 
   // Computed
   const totalReportsThisYear = computed(() => {
@@ -169,6 +171,8 @@ export const useAppStore = defineStore('app', () => {
           project_label: user.value.projectLabel,
           morning_template: morningTemplate.value,
           profile_image: user.value.profileImage,
+          onboarding_complete: onboardingComplete.value,
+          selected_projects: selectedProjects.value,
         })
       }
     } catch (e) {
@@ -214,29 +218,44 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  async function syncReportToSupabase(report) {
+    try {
+      const { useSupabase } = await import('../composables/useSupabase')
+      const { user: authUser, upsertReport } = useSupabase()
+      if (authUser.value) {
+        await upsertReport(report)
+      }
+    } catch (e) {
+      console.warn('Supabase report sync skipped:', e.message)
+    }
+  }
+
   async function syncAllToSupabase() {
     await Promise.all([
       syncProfileToSupabase(),
       syncProjectsToSupabase(),
       syncStampsToSupabase(),
     ])
-    // Sync all existing reports as report_logs
+    // Sync all existing reports (logs + full data)
     for (const report of reports.value) {
       const projectCount = report.projects ? report.projects.length : 1
       await syncReportLogToSupabase(report.date, projectCount)
+      await syncReportToSupabase(report)
     }
   }
 
   async function loadFromSupabase() {
     try {
       const { useSupabase } = await import('../composables/useSupabase')
-      const { user: authUser, getProfile, getProjects, getStamps } = useSupabase()
+      const { user: authUser, getProfile, getProjects, getStamps, getReports, getUserReportLogs } = useSupabase()
       if (!authUser.value) return
 
-      const [profile, supaProjects, supaStamps] = await Promise.all([
+      const [profile, supaProjects, supaStamps, supaReports, supaReportLogs] = await Promise.all([
         getProfile(),
         getProjects(),
         getStamps(),
+        getReports(),
+        getUserReportLogs(),
       ])
 
       if (profile) {
@@ -250,6 +269,12 @@ export const useAppStore = defineStore('app', () => {
         }
         if (profile.morning_template) {
           morningTemplate.value = profile.morning_template
+        }
+        if (profile.onboarding_complete != null) {
+          onboardingComplete.value = profile.onboarding_complete
+        }
+        if (profile.selected_projects && profile.selected_projects.length > 0) {
+          selectedProjects.value = profile.selected_projects
         }
       }
 
@@ -266,8 +291,35 @@ export const useAppStore = defineStore('app', () => {
         stamps.value = supaStamps
       }
 
+      if (supaReportLogs.length > 0) {
+        const logsMap = {}
+        for (const log of supaReportLogs) {
+          logsMap[log.date_key] = log.project_count
+        }
+        reportLogs.value = logsMap
+      }
+
+      // Restore full reports from Supabase if local is empty or has fewer
+      if (supaReports.length > 0 && supaReports.length >= reports.value.length) {
+        reports.value = supaReports.map(r => ({
+          date: r.date,
+          contentHtml: r.content_html || '',
+          projects: r.project_ids || [],
+          projectNames: r.project_names || [],
+          images: r.images || [],
+        }))
+        // Restore lastReportDate from most recent report
+        const today = new Date().toDateString()
+        const hasTodayReport = reports.value.some(r => new Date(r.date).toDateString() === today)
+        if (hasTodayReport) {
+          lastReportDate.value = today
+        }
+      }
+
       saveData()
+      supabaseLoaded.value = true
     } catch (e) {
+      supabaseLoaded.value = true
       console.warn('Supabase load skipped:', e.message)
     }
   }
@@ -314,6 +366,8 @@ export const useAppStore = defineStore('app', () => {
     } else {
       selectedProjects.value.push(projectId)
     }
+    saveData()
+    syncProfileToSupabase()
   }
 
   function clearSelectedProjects() {
@@ -324,13 +378,12 @@ export const useAppStore = defineStore('app', () => {
     const today = new Date().toDateString()
     const now = new Date().toISOString()
     lastReportDate.value = today
-    reports.value.push({
-      date: now,
-      ...report
-    })
+    const fullReport = { date: now, ...report }
+    reports.value.push(fullReport)
     saveData()
     const projectCount = report.projects ? report.projects.length : 1
     syncReportLogToSupabase(now, projectCount)
+    syncReportToSupabase(fullReport)
   }
 
   function updateTodayReport(report) {
@@ -342,6 +395,7 @@ export const useAppStore = defineStore('app', () => {
       const updated = reports.value[existingIndex]
       const projectCount = updated.projects ? updated.projects.length : 1
       syncReportLogToSupabase(updated.date, projectCount)
+      syncReportToSupabase(updated)
     }
   }
 
@@ -441,12 +495,19 @@ export const useAppStore = defineStore('app', () => {
     saveData()
   }
 
-  function clearAllReports() {
+  async function clearAllReports() {
     reports.value = []
     lastReportDate.value = null
     stamps.value = {}
     saveData()
     syncStampsToSupabase()
+    try {
+      const { useSupabase } = await import('../composables/useSupabase')
+      const { user: authUser, deleteAllReports } = useSupabase()
+      if (authUser.value) await deleteAllReports()
+    } catch (e) {
+      console.warn('Supabase reports delete skipped:', e.message)
+    }
   }
 
   function deleteAllData() {
@@ -494,6 +555,8 @@ export const useAppStore = defineStore('app', () => {
     onboardingComplete,
     morningTemplate,
     stamps,
+    reportLogs,
+    supabaseLoaded,
 
     // Computed
     totalReportsThisYear,
@@ -523,6 +586,7 @@ export const useAppStore = defineStore('app', () => {
     syncProfileToSupabase,
     syncProjectsToSupabase,
     syncStampsToSupabase,
+    syncReportToSupabase,
     syncAllToSupabase,
     loadFromSupabase,
     loadProfileFromSupabase,

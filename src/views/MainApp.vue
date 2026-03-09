@@ -19,7 +19,7 @@ import TodayTemplate from '../components/features/TodayTemplate.vue'
 import TaigaTaskPicker from '../components/features/TaigaTaskPicker.vue'
 import BaseHeader from '../components/ui/BaseHeader.vue'
 import BaseButton from '../components/ui/BaseButton.vue'
-import { IconUser, IconChevronDown, IconTemplate, IconSettings, IconStar, IconSpinner, IconImage, IconClose, IconCopy, IconCheck } from '../components/icons'
+import { IconUser, IconChevronDown, IconTemplate, IconSettings, IconClearDay, IconStar, IconSpinner, IconImage, IconClose, IconCopy, IconCheck } from '../components/icons'
 import TemplateCardIllustration from '../components/illustrations/TemplateCardIllustration.vue'
 import SettingsCardIllustration from '../components/illustrations/SettingsCardIllustration.vue'
 
@@ -418,17 +418,17 @@ onUnmounted(() => {
       <div class="max-w-full mx-auto px-8 md:px-16 lg:px-[240px]">
         <!-- Stats Grid -->
         <section class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 -mt-16 relative z-10">
-          <div class="relative bg-[#8b6bae] rounded-3xl p-6 shadow-none overflow-hidden min-h-[140px]">
+          <div class="relative bg-[#8b6bae] rounded-3xl p-6 shadow-none overflow-hidden min-h-[180px]">
             <p class="text-sm text-white/80 mb-1">โครงการทั้งหมด</p>
             <p class="text-[36px] font-bold text-white mt-4">{{ store.projects.length }}</p>
             <img src="../assets/all-project.svg" alt="" class="absolute -right-4 -bottom-4 w-36 h-36" />
           </div>
-          <div class="relative bg-[#5bab7b] rounded-3xl p-6 shadow-none overflow-hidden min-h-[140px]">
+          <div class="relative bg-[#5bab7b] rounded-3xl p-6 shadow-none overflow-hidden min-h-[180px]">
             <p class="text-sm text-white/80 mb-1">รายงานแล้วในปีนี้ (ครั้ง)</p>
             <p class="text-[36px] font-bold text-white mt-4">{{ store.totalReportsThisYear }}</p>
             <img src="../assets/heatmap-count.svg" alt="" class="absolute -right-4 -bottom-4 w-36 h-36" />
           </div>
-          <div class="relative bg-(--accent-3) rounded-3xl p-6 shadow-none overflow-hidden min-h-[140px]">
+          <div class="relative bg-(--accent-3) rounded-3xl p-6 shadow-none overflow-hidden min-h-[180px]">
             <p class="text-sm text-white/80 mb-1">การอัปบล็อกวันนี้</p>
             <p class="text-[36px] font-bold text-white mt-4">{{ store.hasReportedToday ? 'เรียบร้อย ✓' : 'ยัง' }}</p>
             <img src="../assets/today-status.svg" alt="" class="absolute -right-4 -bottom-4 w-36 h-36" />
@@ -453,13 +453,13 @@ onUnmounted(() => {
           </div>
 
           <!-- Settings Card -->
-          <div class="action-card action-card-orange" @click="openSettings('projects')">
+          <div class="action-card action-card-orange" @click="router.push({ name: 'morning-template' })">
             <div class="action-card-content">
               <span class="action-card-badge action-card-badge-orange">
-                <IconSettings />
-                การตั้งค่า
+                <IconClearDay />
+                สิ่งที่จะทำวันนี้
               </span>
-              <p class="action-card-desc">จัดการเทมเพลต</p>
+              <p class="action-card-desc">จัดการงานประจำวัน</p>
             </div>
             <SettingsCardIllustration />
           </div>

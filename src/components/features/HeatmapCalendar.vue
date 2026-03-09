@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed } from 'vue'
 import { useAppStore } from '../../stores/app'
 import { useDateTime } from '../../composables/useDateTime'
 import { useToast } from '../../composables/useToast'
@@ -9,6 +9,9 @@ const { showToast } = useToast()
 const { thaiMonthsShort, formatThaiDate } = useDateTime()
 
 const emit = defineEmits(['viewReport'])
+
+// Loading = true until Supabase fetch completes
+const loading = computed(() => !store.supabaseLoaded)
 
 const selectedYear = ref(new Date().getFullYear())
 const activeSticker = ref(null)
@@ -42,7 +45,7 @@ function handleDockMouseMove(e) {
     const distance = Math.abs(e.clientX - btnCenterX)
     const maxDist = 120
     const t = Math.max(0, 1 - distance / maxDist)
-    const scale = t * t * (3 - 2 * t) // smoothstep curve
+    const scale = t * t * (3 - 2 * t)
     const magnify = 1 + scale * 0.35
     const lift = scale * 8
     btn.style.transform = `scale(${magnify}) translateY(-${lift}px)`
@@ -62,11 +65,16 @@ const availableYears = [2026, 2025, 2024, 2023]
 
 const reportCountMap = computed(() => {
   const map = {}
+  if (store.reportLogs) {
+    for (const [dateKey, count] of Object.entries(store.reportLogs)) {
+      map[dateKey] = count
+    }
+  }
   store.reports.forEach(report => {
     const reportDate = new Date(report.date)
     const dateKey = `${reportDate.getFullYear()}-${reportDate.getMonth()}-${reportDate.getDate()}`
     const projectCount = report.projects ? report.projects.length : 1
-    map[dateKey] = (map[dateKey] || 0) + projectCount
+    map[dateKey] = projectCount
   })
   return map
 })
@@ -74,7 +82,6 @@ const reportCountMap = computed(() => {
 const calendarData = computed(() => {
   const year = selectedYear.value
   const startDate = new Date(year, 0, 1)
-  const endDate = new Date(year, 11, 31)
   const today = new Date()
   today.setHours(23, 59, 59, 999)
 
@@ -102,14 +109,16 @@ const calendarData = computed(() => {
         else if (count >= 3) level = 3
 
         const thaiDate = formatThaiDate(currentDate)
+        const isToday = currentDate.toDateString() === new Date().toDateString()
 
         weekData.push({
           date: currentDate,
           dateKey,
           count,
-          level: isPastOrToday ? level : -1, // -1 for future
+          level: isPastOrToday ? level : -1,
           tooltip: count > 0 ? `${thaiDate}: ${count} โครงการ` : `${thaiDate}: ไม่มีข้อมูล`,
-          isFuture: !isPastOrToday
+          isFuture: !isPastOrToday,
+          isToday
         })
       } else {
         weekData.push({ empty: true })
@@ -191,86 +200,129 @@ defineExpose({ closeDock })
 
 <template>
   <div class="heatmap-section">
-    <section class="heatmap-card">
-      <div class="heatmap-header">
-        <div>
-          <h3 class="heatmap-title">บันทึกการอัปบล็อก</h3>
-          <p class="heatmap-subtitle">ข้อมูลนับจากการบันทึกรายงานประจำวัน สามารถแปะอิโมจิให้กับช่องวันที่ว่างอยู่ได้</p>
-        </div>
-        <button class="sticker-dock-trigger" :class="{ active: showDock }" @click="toggleDock">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <circle cx="4" cy="10" r="2" fill="currentColor"/>
-            <circle cx="10" cy="10" r="2" fill="currentColor"/>
-            <circle cx="16" cy="10" r="2" fill="currentColor"/>
-          </svg>
-        </button>
-      </div>
-      <div class="heatmap-container">
-        <div class="heatmap-months">
-          <span
-            v-for="(label, index) in monthLabels"
-            :key="index"
-            :style="{ left: label.position + '%' }"
-          >
-            {{ label.name }}
-          </span>
-        </div>
-        <div class="heatmap-wrapper heatmap-grid-layout">
-          <div class="heatmap-days">
-            <span>อา.</span>
-            <span>จ.</span>
-            <span>อ.</span>
-            <span>พ.</span>
-            <span>พฤ.</span>
-            <span>ศ.</span>
-            <span>ส.</span>
+    <!-- Skeleton -->
+    <template v-if="loading">
+      <section class="heatmap-card heatmap-card--skeleton">
+        <div class="heatmap-header">
+          <div>
+            <div class="sk" style="width: 160px; height: 18px; margin-bottom: 8px;"></div>
+            <div class="sk" style="width: 340px; height: 13px;"></div>
           </div>
-          <div class="heatmap-grid">
-            <div v-for="(week, weekIndex) in calendarData" :key="weekIndex" class="heatmap-week">
-              <div
-                v-for="(day, dayIndex) in week"
-                :key="dayIndex"
-                class="heatmap-day"
-                :class="{
-                  empty: day.empty,
-                  future: day.isFuture && !store.stamps[day.dateKey],
-                  [`level-${day.level}`]: !day.empty && !day.isFuture && !store.stamps[day.dateKey],
-                  [`stamp-${store.stamps[day.dateKey]}`]: !day.empty && store.stamps[day.dateKey]
-                }"
-                :title="day.tooltip"
-                :style="{ cursor: (!day.empty && activeSticker && !(day.isFuture && activeSticker === 'sick')) || day.count > 0 ? 'pointer' : 'default' }"
-                @click="handleDayClick(day)"
-              >
+          <div class="sk sk--circle" style="width: 36px; height: 36px;"></div>
+        </div>
+        <div class="heatmap-container">
+          <div class="sk-months">
+            <div v-for="i in 12" :key="i" class="sk" style="height: 10px; flex: 1;"></div>
+          </div>
+          <div class="heatmap-wrapper heatmap-grid-layout">
+            <div class="sk-day-labels">
+              <div v-for="i in 7" :key="i" class="sk" style="width: 20px; height: 10px;"></div>
+            </div>
+            <div class="heatmap-grid">
+              <div v-for="w in 53" :key="w" class="heatmap-week">
+                <div v-for="d in 7" :key="d" class="heatmap-day sk-cell"></div>
               </div>
             </div>
           </div>
         </div>
-      </div>
-      <div class="heatmap-legend">
-        <span class="legend-label">น้อย</span>
-        <div class="legend-scale">
-          <div class="legend-box level-0"></div>
-          <div class="legend-box level-1"></div>
-          <div class="legend-box level-2"></div>
-          <div class="legend-box level-3"></div>
+        <div class="sk-legend">
+          <div class="sk" style="width: 28px; height: 10px;"></div>
+          <div v-for="i in 4" :key="i" class="sk" style="width: 12px; height: 12px; border-radius: 2px;"></div>
+          <div class="sk" style="width: 28px; height: 10px;"></div>
         </div>
-        <span class="legend-label">มาก</span>
+      </section>
+      <div class="heatmap-year-card">
+        <div class="heatmap-year-list">
+          <div v-for="i in 4" :key="i" class="sk" style="width: 48px; height: 28px; border-radius: 8px;"></div>
+        </div>
       </div>
-    </section>
-    <div class="heatmap-year-card">
-      <div class="heatmap-year-list">
-        <button
-          v-for="year in availableYears"
-          :key="year"
-          class="year-btn"
-          :class="{ active: selectedYear === year }"
-          :data-year="year"
-          @click="setYear(year)"
-        >
-          {{ year }}
-        </button>
+    </template>
+
+    <!-- Real content -->
+    <template v-else>
+      <section class="heatmap-card">
+        <div class="heatmap-header">
+          <div>
+            <h3 class="heatmap-title">บันทึกการอัปบล็อก</h3>
+            <p class="heatmap-subtitle">ข้อมูลนับจากการบันทึกรายงานประจำวัน สามารถแปะอิโมจิให้กับช่องวันที่ว่างอยู่ได้</p>
+          </div>
+          <button class="sticker-dock-trigger" :class="{ active: showDock }" @click="toggleDock">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <circle cx="4" cy="10" r="2" fill="currentColor"/>
+              <circle cx="10" cy="10" r="2" fill="currentColor"/>
+              <circle cx="16" cy="10" r="2" fill="currentColor"/>
+            </svg>
+          </button>
+        </div>
+        <div class="heatmap-container">
+          <div class="heatmap-months">
+            <span
+              v-for="(label, index) in monthLabels"
+              :key="index"
+              :style="{ left: label.position + '%' }"
+            >
+              {{ label.name }}
+            </span>
+          </div>
+          <div class="heatmap-wrapper heatmap-grid-layout">
+            <div class="heatmap-days">
+              <span>อา.</span>
+              <span>จ.</span>
+              <span>อ.</span>
+              <span>พ.</span>
+              <span>พฤ.</span>
+              <span>ศ.</span>
+              <span>ส.</span>
+            </div>
+            <div class="heatmap-grid">
+              <div v-for="(week, weekIndex) in calendarData" :key="weekIndex" class="heatmap-week">
+                <div
+                  v-for="(day, dayIndex) in week"
+                  :key="dayIndex"
+                  class="heatmap-day"
+                  :class="{
+                    empty: day.empty,
+                    future: day.isFuture && !store.stamps[day.dateKey],
+                    today: day.isToday,
+                    [`level-${day.level}`]: !day.empty && !day.isFuture && (!store.stamps[day.dateKey] || store.stamps[day.dateKey] === 'work'),
+                    'stamp-work': !day.empty && store.stamps[day.dateKey] === 'work' && day.level === 0,
+                    [`stamp-${store.stamps[day.dateKey]}`]: !day.empty && store.stamps[day.dateKey] && store.stamps[day.dateKey] !== 'work'
+                  }"
+                  :title="day.tooltip"
+                  :style="{ cursor: (!day.empty && activeSticker && !(day.isFuture && activeSticker === 'sick')) || day.count > 0 ? 'pointer' : 'default' }"
+                  @click="handleDayClick(day)"
+                >
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="heatmap-legend">
+          <span class="legend-label">น้อย</span>
+          <div class="legend-scale">
+            <div class="legend-box level-0"></div>
+            <div class="legend-box level-1"></div>
+            <div class="legend-box level-2"></div>
+            <div class="legend-box level-3"></div>
+          </div>
+          <span class="legend-label">มาก</span>
+        </div>
+      </section>
+      <div class="heatmap-year-card">
+        <div class="heatmap-year-list">
+          <button
+            v-for="year in availableYears"
+            :key="year"
+            class="year-btn"
+            :class="{ active: selectedYear === year }"
+            :data-year="year"
+            @click="setYear(year)"
+          >
+            {{ year }}
+          </button>
+        </div>
       </div>
-    </div>
+    </template>
   </div>
 
   <Teleport to="body">

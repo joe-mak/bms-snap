@@ -21,14 +21,30 @@ let bodies = []
 let resizeObserver = null
 let convergeFrameId = null
 
+let frameSkip = 0
 function syncPositions() {
-  bodies.forEach((body, i) => {
-    if (letterStates[i]) {
-      letterStates[i].x = body.position.x
-      letterStates[i].y = body.position.y
-      letterStates[i].angle = body.angle
+  // Throttle: skip frames when many bodies to reduce reactive overhead
+  frameSkip++
+  const skip = bodies.length > 500 ? 3 : bodies.length > 200 ? 2 : 1
+  if (frameSkip % skip !== 0) {
+    animFrameId = requestAnimationFrame(syncPositions)
+    return
+  }
+
+  const len = bodies.length
+  for (let i = 0; i < len; i++) {
+    const body = bodies[i]
+    const state = letterStates[i]
+    if (!state) continue
+    // Only update if body moved meaningfully
+    const dx = body.position.x - state.x
+    const dy = body.position.y - state.y
+    if (dx * dx + dy * dy > 0.25 || Math.abs(body.angle - state.angle) > 0.005) {
+      state.x = body.position.x
+      state.y = body.position.y
+      state.angle = body.angle
     }
-  })
+  }
   animFrameId = requestAnimationFrame(syncPositions)
 }
 
@@ -229,6 +245,7 @@ onUnmounted(() => cleanup())
   position: relative;
   overflow: visible;
   pointer-events: none;
+  contain: layout style;
 }
 
 .falling-letter {
@@ -248,6 +265,8 @@ onUnmounted(() => cleanup())
   border-radius: 8px;
   user-select: none;
   pointer-events: none;
+  will-change: transform, opacity;
+  contain: layout style paint;
 }
 
 .dying-letter {

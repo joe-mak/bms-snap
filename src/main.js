@@ -25,6 +25,6 @@ init().then(() => {
   store.loadProfileFromSupabase()
 }).finally(() => {
   app.use(router)
-  app.component('QuillEditor', QuillEditor)
+app.component('QuillEditor', QuillEditor)
   app.mount('#app')
 })

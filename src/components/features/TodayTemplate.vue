@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { IconCopy, IconCheck } from '../icons'
 import BaseButton from '../ui/BaseButton.vue'
 import { useToast } from '../../composables/useToast'
+import { useAppStore } from '../../stores/app'
 import taigaLogo from '../../assets/taiga-logo.svg'
 import decoCloud from '../../assets/deco-cloud.svg'
 import decoBubble from '../../assets/deco-bubble.svg'
@@ -21,16 +22,47 @@ const props = defineProps({
   reportSaved: { type: Boolean, default: false },
   hasTaiga: { type: Boolean, default: false },
   mode: { type: String, default: 'edit' },
+  debug: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['copy', 'save', 'postTaiga'])
 
+const store = useAppStore()
 const { showToast } = useToast()
 
 const copySuccess = ref(false)
 const sectionCopyIdx = ref(-1)
+const sectionCopyTaigaIdx = ref(-1)
 const polaroidCopyIdx = ref(-1)
 const flashActive = ref(false)
+const hoveredSectionIdx = ref(-1)
+const dropdownPos = ref({ top: 0, left: 0 })
+let hideTimeout = null
+
+function onSectionEnter(i, e) {
+  clearTimeout(hideTimeout)
+  hoveredSectionIdx.value = i
+  const rect = e.currentTarget.getBoundingClientRect()
+  dropdownPos.value = {
+    top: rect.top + rect.height / 2,
+    left: rect.right
+  }
+}
+
+function scheduleHide() {
+  clearTimeout(hideTimeout)
+  hideTimeout = setTimeout(() => {
+    hoveredSectionIdx.value = -1
+  }, 300)
+}
+
+function onDropdownEnter() {
+  clearTimeout(hideTimeout)
+}
+
+function onDropdownLeave() {
+  scheduleHide()
+}
 
 function handleSave() {
   flashActive.value = true
@@ -133,6 +165,29 @@ function copySection(html, idx) {
   setTimeout(() => { sectionCopyIdx.value = -1 }, 1500)
 }
 
+function getSectionTaigaUrl(html) {
+  const tmp = document.createElement('div')
+  tmp.innerHTML = html
+  const text = tmp.textContent || ''
+  const match = text.match(/โครงการ\s*[:\s]\s*(.+?)(?:\n|$)/)
+  if (!match) return null
+  const name = match[1].trim()
+  const project = store.projects.find(p => p.name === name)
+  return project?.taigaUrl || null
+}
+
+function copySectionTaigaUrl(html, idx) {
+  const url = getSectionTaigaUrl(html)
+  if (!url) {
+    showToast('ไม่พบ Taiga URL สำหรับโครงการนี้')
+    return
+  }
+  navigator.clipboard.writeText(url)
+  sectionCopyTaigaIdx.value = idx
+  showToast('คัดลอก Taiga URL แล้ว')
+  setTimeout(() => { sectionCopyTaigaIdx.value = -1 }, 1500)
+}
+
 async function copyPolaroidImage(dataUrl, idx) {
   try {
     const res = await fetch(dataUrl)
@@ -222,12 +277,9 @@ async function copyPolaroidImage(dataUrl, idx) {
             <div v-if="contentSections.length" class="section-divider"></div>
 
             <div v-for="(section, i) in contentSections" :key="i" class="today-template-section"
-              :class="{ copied: sectionCopyIdx === i }" @click="copySection(section, i)">
+              :class="{ copied: sectionCopyIdx === i || sectionCopyTaigaIdx === i, hovered: hoveredSectionIdx === i }"
+              @mouseenter="onSectionEnter(i, $event)" @mouseleave="scheduleHide">
               <div class="section-inner" v-html="section"></div>
-              <span class="section-copy-icon">
-                <IconCheck v-if="sectionCopyIdx === i" :size="16" color="#16A34A" />
-                <IconCopy v-else :size="16" color="#194987" />
-              </span>
               <div v-if="i < contentSections.length - 1" class="section-divider"></div>
             </div>
           </div>
@@ -264,6 +316,25 @@ async function copyPolaroidImage(dataUrl, idx) {
       </div>
     </div>
   </div>
+
+  <Teleport to="body">
+    <Transition name="dropdown">
+      <div v-if="hoveredSectionIdx >= 0" class="section-dropdown-teleport"
+        :style="{ top: dropdownPos.top + 'px', left: dropdownPos.left + 'px' }"
+        @mouseenter="onDropdownEnter" @mouseleave="onDropdownLeave">
+        <button class="section-menu-btn" @click="copySection(contentSections[hoveredSectionIdx], hoveredSectionIdx)">
+          <IconCheck v-if="sectionCopyIdx === hoveredSectionIdx" :size="14" color="#16A34A" />
+          <IconCopy v-else :size="14" color="#194987" />
+          <span>{{ sectionCopyIdx === hoveredSectionIdx ? 'คัดลอกแล้ว' : 'คัดลอกข้อความ' }}</span>
+        </button>
+        <button v-if="debug || getSectionTaigaUrl(contentSections[hoveredSectionIdx])" class="section-menu-btn" @click="copySectionTaigaUrl(contentSections[hoveredSectionIdx], hoveredSectionIdx)">
+          <IconCheck v-if="sectionCopyTaigaIdx === hoveredSectionIdx" :size="14" color="#16A34A" />
+          <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#194987" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          <span>{{ sectionCopyTaigaIdx === hoveredSectionIdx ? 'คัดลอกแล้ว' : 'คัดลอก Taiga URL' }}</span>
+        </button>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -433,58 +504,23 @@ async function copyPolaroidImage(dataUrl, idx) {
   font-weight: 700;
 }
 
-/* Section-level hover — click to copy */
+/* Section-level hover */
 .today-template-section {
   position: relative;
   padding: 8px;
   border-radius: 12px;
-  cursor: pointer;
   transition: background 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
-    box-shadow 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
-    transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    box-shadow 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .today-template-section:hover {
-  background: rgba(43, 127, 255, 0.1);
-  box-shadow: 4px 4px 1px rgba(0, 101, 255, 0.5);
-}
-
-.today-template-section:active {
-  transform: scale(0.97);
-  background: rgba(43, 127, 255, 0.15);
-  box-shadow: 2px 2px 0px rgba(0, 101, 255, 0.5);
+  background: rgba(43, 127, 255, 0.06);
 }
 
 .today-template-section.copied {
-  background: rgba(22, 163, 74, 0.08);
-  box-shadow: 4px 4px 1px rgba(22, 163, 74, 0.4);
+  background: rgba(22, 163, 74, 0.06);
 }
 
-.section-copy-icon {
-  position: absolute;
-  top: 50%;
-  right: 12px;
-  transform: translateY(-50%);
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-  pointer-events: none;
-}
-
-.today-template-section:hover .section-copy-icon {
-  opacity: 1;
-}
-
-.today-template-section.copied .section-copy-icon {
-  opacity: 1;
-}
 
 .section-divider {
   height: 1px;
@@ -689,5 +725,64 @@ async function copyPolaroidImage(dataUrl, idx) {
   .deco {
     display: none;
   }
+}
+</style>
+
+<style>
+/* Teleported dropdown — must be unscoped */
+.section-dropdown-teleport {
+  position: fixed;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  padding-left: 20px;
+  margin-left: -14px;
+  background: transparent;
+  z-index: 9999;
+}
+
+.section-dropdown-teleport::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  left: 14px;
+  background: white;
+  border: 1px solid #e5e5e5;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  z-index: -1;
+}
+
+.section-dropdown-teleport .section-menu-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  background: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #194987;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.section-dropdown-teleport .section-menu-btn:hover {
+  background: #f0f7ff;
+}
+
+.dropdown-enter-active,
+.dropdown-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.dropdown-enter-from,
+.dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(-50%) translateX(-4px);
 }
 </style>

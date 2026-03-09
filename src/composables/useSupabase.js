@@ -155,12 +155,58 @@ export function useSupabase() {
     if (error) throw error
   }
 
+  async function getUserReportLogs() {
+    if (!user.value) return []
+    const { data, error } = await supabase
+      .from('report_logs')
+      .select('date_key, project_count')
+      .eq('user_id', user.value.id)
+    if (error) throw error
+    return data || []
+  }
+
   async function getAllReportLogs() {
     const { data, error } = await supabase
       .from('report_logs')
       .select('user_id, date_key, project_count')
     if (error) throw error
     return data || []
+  }
+
+  // --- Reports (full data) ---
+
+  async function getReports() {
+    if (!user.value) return []
+    const { data, error } = await supabase
+      .from('reports')
+      .select('*')
+      .eq('user_id', user.value.id)
+      .order('date', { ascending: false })
+    if (error) throw error
+    return data || []
+  }
+
+  async function upsertReport(report) {
+    if (!user.value) return
+    const d = new Date(report.date)
+    const dateKey = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+    const { error } = await supabase
+      .from('reports')
+      .upsert({
+        user_id: user.value.id,
+        date_key: dateKey,
+        date: report.date,
+        content_html: report.contentHtml || '',
+        project_ids: report.projects || [],
+        project_names: report.projectNames || [],
+        images: report.images || [],
+      }, { onConflict: 'user_id,date_key' })
+    if (error) throw error
+  }
+
+  async function deleteAllReports() {
+    if (!user.value) return
+    await supabase.from('reports').delete().eq('user_id', user.value.id)
   }
 
   // --- Admin ---
@@ -243,7 +289,11 @@ export function useSupabase() {
     getUserProjects,
     getUserStamps,
     upsertReportLog,
+    getUserReportLogs,
     getAllReportLogs,
+    getReports,
+    upsertReport,
+    deleteAllReports,
     getAllStamps,
     getAllProjects,
     adminDeleteUser,

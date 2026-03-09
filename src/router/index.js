@@ -27,11 +27,24 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/morning-template',
+    name: 'morning-template',
+    component: () => import('../views/MorningTemplatePage.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/admin',
     name: 'admin',
     component: () => import('../views/AdminDashboard.vue'),
     meta: { requiresAuth: true }
-  }
+  },
+  // Dev-only playground route (excluded from production builds)
+  ...(import.meta.env.DEV ? [{
+    path: '/playground',
+    name: 'playground',
+    component: () => import('../views/PlaygroundPage.vue'),
+    meta: { requiresAuth: true }
+  }] : [])
 ]
 
 const router = createRouter({
