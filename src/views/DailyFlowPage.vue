@@ -66,6 +66,24 @@ function isSelected(id) {
   return selectedProjectIds.value.includes(id)
 }
 
+// Top 3 most selected projects from last 7 days
+const frequentProjectIds = computed(() => {
+  const sevenDaysAgo = new Date()
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+  const counts = {}
+  for (const r of store.reports) {
+    if (new Date(r.date) < sevenDaysAgo) continue
+    for (const id of (r.projects || [])) {
+      counts[id] = (counts[id] || 0) + 1
+    }
+  }
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([id]) => id)
+    .filter(id => store.projects.some(p => String(p.id) === String(id)))
+})
+
 const selectedProjectPills = computed(() => {
   return selectedProjectIds.value.map(id => {
     const project = store.projects.find(p => p.id === id)
@@ -83,9 +101,17 @@ function handleBack() {
 
 async function handleNext() {
   if (currentStep.value === 2) {
-    // Save report immediately
-    if (isSaving.value || reportSaved.value) return
-    isSaving.value = true
+    showSaveConfirm.value = true
+    return
+  } else if (currentStep.value < 2) {
+    currentStep.value++
+  }
+}
+
+async function confirmSave() {
+  showSaveConfirm.value = false
+  if (isSaving.value || reportSaved.value) return
+  isSaving.value = true
     try {
       const selectedNames = selectedProjectIds.value
         .map(id => store.projects.find(p => p.id === id)?.name)
@@ -117,9 +143,6 @@ async function handleNext() {
     convergeTarget.value = null
     await new Promise(r => setTimeout(r, 1500))
     router.push('/app?saved=1')
-  } else if (currentStep.value < 2) {
-    currentStep.value++
-  }
 }
 
 // Auto-focus editor when entering step 2
@@ -292,17 +315,24 @@ const convergeTarget = ref(null)
 const generatingVisible = ref(false)
 const isSaving = ref(false)
 const reportSaved = ref(false)
+const showSaveConfirm = ref(false)
 
-
+function onClickOutsideConfirm(e) {
+  if (showSaveConfirm.value && !e.target.closest('.daily-flow-nav-next-wrapper')) {
+    showSaveConfirm.value = false
+  }
+}
 
 onMounted(() => {
   document.addEventListener('paste', handleImagePaste, true)
   document.addEventListener('keydown', handleKeyDown)
+  document.addEventListener('click', onClickOutsideConfirm, true)
 })
 
 onUnmounted(() => {
   document.removeEventListener('paste', handleImagePaste, true)
   document.removeEventListener('keydown', handleKeyDown)
+  document.removeEventListener('click', onClickOutsideConfirm, true)
 })
 </script>
 
@@ -373,6 +403,22 @@ onUnmounted(() => {
             <div v-if="currentStep === 1" class="daily-flow-content daily-flow-content-scroll">
               <p class="daily-flow-subtitle">เลือกได้มากกว่า 1 รายการ</p>
 
+              <div v-if="frequentProjectIds.length > 0" class="daily-flow-frequent">
+                <p class="daily-flow-frequent-label">โครงการที่คุณมีส่วนร่วมล่าสุด</p>
+                <div class="daily-flow-chips">
+                  <button
+                    v-for="id in frequentProjectIds"
+                    :key="'freq-' + id"
+                    class="daily-flow-chip daily-flow-chip-frequent"
+                    :class="{ 'is-selected': isSelected(store.projects.find(p => String(p.id) === String(id))?.id) }"
+                    :title="store.projects.find(p => String(p.id) === String(id))?.name"
+                    @click="toggleProject(store.projects.find(p => String(p.id) === String(id))?.id)"
+                  >
+                    {{ store.projects.find(p => String(p.id) === String(id))?.name }}
+                  </button>
+                </div>
+              </div>
+
               <div class="daily-flow-chips">
                 <button
                   v-for="project in store.projects"
@@ -442,14 +488,25 @@ onUnmounted(() => {
           <BaseButton variant="outline" size="lg" class="bg-white!" @click="handleBack">
             {{ currentStep === 1 ? 'กลับสู่หน้าหลัก' : 'ย้อนกลับ' }}
           </BaseButton>
-          <BaseButton
-            variant="primary"
-            size="lg"
-            :disabled="currentStep === 1 && selectedProjectIds.length === 0"
-            @click="handleNext"
-          >
-            ไปกันต่อ ({{ currentStep }}/2)
-          </BaseButton>
+          <div class="daily-flow-nav-next-wrapper">
+            <Transition name="confirm-pop">
+              <div v-if="showSaveConfirm" class="save-confirm-popover">
+                <p class="save-confirm-text">คอนเฟิร์มแล้วใช่มั้ย บันทึกแล้วแก้ไม่ได้นะ</p>
+                <div class="save-confirm-actions">
+                  <BaseButton variant="outline" size="sm" @click="showSaveConfirm = false">ขอดูอีกทีก่อนนะ</BaseButton>
+                  <BaseButton variant="primary" size="sm" class="!bg-[#16A34A] !border-[#16A34A] hover:!bg-[#15803D] hover:!shadow-[4px_4px_0px_rgba(22,163,74,0.3)]" @click="confirmSave">บันทึกเลย</BaseButton>
+                </div>
+              </div>
+            </Transition>
+            <BaseButton
+              variant="primary"
+              size="lg"
+              :disabled="currentStep === 1 && selectedProjectIds.length === 0"
+              @click="handleNext"
+            >
+              ไปกันต่อ ({{ currentStep }}/2)
+            </BaseButton>
+          </div>
         </div>
       </div>
     </div>
@@ -634,6 +691,27 @@ onUnmounted(() => {
 
 .daily-flow-chip:active {
   transform: scale(0.95);
+}
+
+.daily-flow-frequent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+.daily-flow-frequent-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.daily-flow-chip-frequent {
+  border-style: dashed;
 }
 
 .daily-flow-chip.is-selected {
@@ -910,6 +988,77 @@ onUnmounted(() => {
 
 .daily-flow-center.step3-center::before {
   background: none;
+}
+
+/* Save Confirmation Popover */
+.daily-flow-nav-next-wrapper {
+  position: relative;
+}
+
+.save-confirm-popover {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: white;
+  border: 1px solid #e5e5e5;
+  border-radius: 12px;
+  padding: 14px 18px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  white-space: nowrap;
+  text-align: center;
+  z-index: 10;
+}
+
+.save-confirm-popover::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: white;
+}
+
+.save-confirm-popover::before {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 7px solid transparent;
+  border-top-color: #e5e5e5;
+}
+
+.save-confirm-text {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 10px;
+}
+
+.save-confirm-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.confirm-pop-enter-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.confirm-pop-leave-active {
+  transition: opacity 0.1s ease, transform 0.1s ease;
+}
+
+.confirm-pop-enter-from {
+  opacity: 0;
+  transform: translateX(-50%) translateY(4px);
+}
+
+.confirm-pop-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(4px);
 }
 
 </style>
