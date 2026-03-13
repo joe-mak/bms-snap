@@ -8,6 +8,13 @@ import { useSupabase } from '../composables/useSupabase'
 import { useAppStore } from '../stores/app'
 import BaseInput from '../components/ui/BaseInput.vue'
 import BaseButton from '../components/ui/BaseButton.vue'
+
+const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+
+function handleTestLogin() {
+  store.loginAsTest()
+  router.push('/onboarding')
+}
 import ImportModal from '../components/ImportModal.vue'
 
 const { showToast } = useToast()
@@ -146,6 +153,11 @@ async function handleTaigaLogin() {
             {{ loginState === 'loading' ? 'กำลังเชื่อมต่อ...' : 'Login' }}
           </BaseButton>
 
+          <!-- Test account (localhost only) -->
+          <button v-if="isLocalhost" class="test-login-btn" @click="handleTestLogin">
+            ทดสอบระบบ (localhost only)
+          </button>
+
         </div>
       </div>
     </div>
@@ -163,6 +175,24 @@ async function handleTaigaLogin() {
 </template>
 
 <style>
+.test-login-btn {
+  width: 100%;
+  padding: 10px;
+  border: 1.5px dashed #ccc;
+  border-radius: 10px;
+  background: transparent;
+  color: #999;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.test-login-btn:hover {
+  border-color: #888;
+  color: #555;
+  background: #f9f9f9;
+}
+
 @keyframes landingSlideIn {
   0% {
     opacity: 0;

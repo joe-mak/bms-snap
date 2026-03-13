@@ -9,11 +9,36 @@ import BaseHeader from '../components/ui/BaseHeader.vue'
 import BaseButton from '../components/ui/BaseButton.vue'
 import BaseInput from '../components/ui/BaseInput.vue'
 import { IconPerson, IconFolderOpen, IconInfo } from '../components/icons'
+import badgeSvg from '../assets/badge.svg'
+import { useSupabase } from '../composables/useSupabase'
 
 const router = useRouter()
 const store = useAppStore()
 const { showToast } = useToast()
 const { getCredentials } = useTaiga()
+const { getProfileSuggestions } = useSupabase()
+
+const workplaceSuggestions = ref([])
+const projectLabelSuggestions = ref([])
+const workplaceFocused = ref(false)
+const projectLabelFocused = ref(false)
+
+const filteredWorkplace = computed(() =>
+  workplaceSuggestions.value.filter(s => s.toLowerCase().includes(workplace.value.toLowerCase()))
+)
+const filteredProjectLabel = computed(() =>
+  projectLabelSuggestions.value.filter(s => s.toLowerCase().includes(projectLabel.value.toLowerCase()))
+)
+
+function selectWorkplace(s) {
+  workplace.value = s
+  workplaceFocused.value = false
+}
+function selectProjectLabel(s) {
+  projectLabel.value = s
+  projectLabelFocused.value = false
+}
+
 
 const currentStep = ref(1)
 
@@ -210,7 +235,14 @@ function removePill(taigaId) {
   }
 }
 
-onMounted(() => initMatter())
+onMounted(async () => {
+  initMatter()
+  try {
+    const { workplaces, projectLabels } = await getProfileSuggestions()
+    workplaceSuggestions.value = workplaces
+    projectLabelSuggestions.value = projectLabels
+  } catch {}
+})
 
 onUnmounted(() => destroyMatter())
 
@@ -412,7 +444,14 @@ function handleNext() {
                         <IconInfo :size="16" color="var(--secondary-text)" />
                       </div>
                     </div>
-                    <BaseInput v-model="workplace" placeholder="เช่น บริษัท" :error="attempted && !workplace.trim()" />
+                    <div class="suggest-wrap">
+                      <input v-model="workplace" placeholder="เช่น บริษัท" :class="['suggest-input suggest-input--arrow', attempted && !workplace.trim() ? 'error' : '']"
+                        @focus="workplaceFocused = true" @blur="setTimeout(() => workplaceFocused = false, 150)" />
+                      <svg class="suggest-arrow" :class="{ open: workplaceFocused }" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                      <div v-if="workplaceFocused && filteredWorkplace.length" class="suggest-dropdown">
+                        <button v-for="s in filteredWorkplace" :key="s" class="suggest-option" @mousedown.prevent="selectWorkplace(s)">{{ s }}</button>
+                      </div>
+                    </div>
                   </div>
 
                   <!-- Full-width: ชื่อโครงการในเทมเพลต -->
@@ -423,8 +462,14 @@ function handleNext() {
                         <IconInfo :size="16" color="var(--secondary-text)" />
                       </div>
                     </div>
-                    <BaseInput v-model="projectLabel" placeholder="เช่น รายงานการทำงานประจำวัน เข้า Office (ฝ่ายพัฒนาระบบ)"
-                      :error="attempted && !projectLabel.trim()" />
+                    <div class="suggest-wrap">
+                      <input v-model="projectLabel" placeholder="เช่น รายงานการทำงานประจำวัน เข้า Office (ฝ่ายพัฒนาระบบ)" :class="['suggest-input suggest-input--arrow', attempted && !projectLabel.trim() ? 'error' : '']"
+                        @focus="projectLabelFocused = true" @blur="setTimeout(() => projectLabelFocused = false, 150)" />
+                      <svg class="suggest-arrow" :class="{ open: projectLabelFocused }" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                      <div v-if="projectLabelFocused && filteredProjectLabel.length" class="suggest-dropdown">
+                        <button v-for="s in filteredProjectLabel" :key="s" class="suggest-option" @mousedown.prevent="selectProjectLabel(s)">{{ s }}</button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -550,7 +595,25 @@ function handleNext() {
                 </BaseButton>
               </div>
 
-              <!-- Step 1 or no selection: empty space -->
+              <!-- Step 1: badge illustration -->
+              <div v-else-if="currentStep === 1" key="step1-right" class="w-full flex items-center justify-center">
+                <div class="badge-wrap">
+                  <img :src="badgeSvg" alt="badge" class="badge-svg" />
+                  <!-- Profile photo -->
+                  <div class="badge-photo">
+                    <img v-if="profilePhoto" :src="profilePhoto" class="w-full h-full object-cover rounded-full" />
+                    <div v-else class="w-full h-full rounded-full bg-gray-200 flex items-center justify-center text-gray-400 text-xl font-bold">
+                      {{ name ? name.charAt(0).toUpperCase() : '?' }}
+                    </div>
+                  </div>
+                  <!-- Name -->
+                  <div class="badge-name">{{ name || '{fullname}' }}</div>
+                  <!-- Role -->
+                  <div class="badge-role">{{ role || '{position}' }}</div>
+                </div>
+              </div>
+
+              <!-- no selection -->
               <div v-else key="empty" />
             </Transition>
           </div>
@@ -606,5 +669,133 @@ function handleNext() {
 
 .detail-fade-leave-to {
   opacity: 0;
+}
+
+.suggest-input {
+  width: 100%;
+  height: 48px;
+  padding: 0 16px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 12px;
+  background: white;
+  font-size: 0.875rem;
+  color: var(--primary-text);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.suggest-input::placeholder {
+  color: var(--secondary-text);
+}
+
+.suggest-input:focus {
+  border-color: var(--primary-brand);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-brand) 20%, transparent);
+}
+
+.suggest-input.error {
+  border-color: #ef4444;
+}
+
+.suggest-wrap {
+  position: relative;
+}
+
+.suggest-input--arrow {
+  padding-right: 40px;
+}
+
+.suggest-arrow {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--secondary-text);
+  pointer-events: none;
+  transition: transform 0.15s ease;
+}
+
+.suggest-arrow.open {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.suggest-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  z-index: 100;
+  overflow: hidden;
+}
+
+.suggest-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 16px;
+  font-size: 0.875rem;
+  color: var(--primary-text);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.suggest-option:hover {
+  background: #f0f7ff;
+  color: var(--primary-brand);
+}
+
+/* Badge overlay */
+.badge-wrap {
+  position: relative;
+  display: inline-block;
+  width: 192px; /* w-48 */
+}
+
+.badge-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Circle center: cx=121/251=48.2%, cy=322/578=55.7%, r=50 → diameter=100px at full size → scaled=76px */
+.badge-photo {
+  position: absolute;
+  left: 50%;
+  top: 55.7%;
+  transform: translate(-50%, -50%);
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+/* Name: roughly y=395/578=68.3% */
+.badge-name {
+  position: absolute;
+  left: 50%;
+  top: 68.5%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 700;
+  color: #1a1a1a;
+  white-space: nowrap;
+  letter-spacing: -0.2px;
+}
+
+/* Role: roughly y=445/578=77% */
+.badge-role {
+  position: absolute;
+  left: 50%;
+  top: 75.5%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: #6b7280;
+  white-space: nowrap;
 }
 </style>

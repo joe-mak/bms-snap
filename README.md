@@ -71,10 +71,15 @@
 - ปุ่มยืนยันก่อนบันทึกรายงาน (Inline Tooltip-style Confirm)
 - "โครงการที่คุณมีส่วนร่วมล่าสุด" สำหรับเลือกโครงการเร็ว (7 วันย้อนหลัง)
 - `getAllReports` API สำหรับ Admin
+- ปุ่มทดสอบระบบ (localhost only) บนหน้า Login ข้ามขั้นตอน Auth
+- Badge preview ใน Onboarding Step 1 แสดง ชื่อ / ตำแหน่ง / รูปโปรไฟล์ ซ้อนบน badge.svg
+- Dropdown Suggestions สำหรับ สถานที่ปฏิบัติงาน และ ชื่อโครงการในเทมเพลต โดยดึงข้อมูลจาก profiles ของผู้ใช้อื่นใน Supabase (ผ่าน SECURITY DEFINER RPC)
+- Chevron arrow icon บน Dropdown field พร้อม animation หมุน 180° เมื่อเปิด
 
 #### Fixed
 - Cross-hovering bug: Dropdown Taiga อัปเดตงานเมื่อเลื่อนเมาส์ข้ามโครงการ
 - Treemap Admin Dashboard นับ Contributor จากโครงการที่เลือกจริงในรายงาน แทนการนับจาก config
+- Dropdown suggestions ไม่แสดงเนื่องจาก RLS บน Supabase profiles table — แก้โดยใช้ RPC function `get_profile_suggestions` แบบ SECURITY DEFINER
 
 ### [Big Update]
 - เชื่อมต่อ Supabase (Auth, Database)

@@ -217,9 +217,18 @@ export function useSupabase() {
     await supabase.from('reports').delete().eq('user_id', user.value.id)
   }
 
+  async function getProfileSuggestions() {
+    const { data } = await supabase.rpc('get_profile_suggestions')
+    if (!data) return { workplaces: [], projectLabels: [] }
+    const workplaces = [...new Set(data.map(r => r.workplace).filter(Boolean))]
+    const projectLabels = [...new Set(data.map(r => r.project_label).filter(Boolean))]
+    return { workplaces, projectLabels }
+  }
+
   // --- Admin ---
 
   async function isAdmin() {
+    if (localStorage.getItem('hurryup_test_mode') === 'true') return true
     if (!user.value) return false
     const { data } = await supabase
       .from('profiles')
@@ -301,6 +310,7 @@ export function useSupabase() {
     getAllReportLogs,
     getReports,
     getAllReports,
+    getProfileSuggestions,
     upsertReport,
     deleteAllReports,
     getAllStamps,

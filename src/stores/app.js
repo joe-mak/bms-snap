@@ -528,6 +528,30 @@ export const useAppStore = defineStore('app', () => {
     stamps.value = {}
   }
 
+  function loginAsTest() {
+    user.value = {
+      name: 'ผู้ทดสอบระบบ',
+      role: 'Developer',
+      workplace: 'ออนไลน์',
+      profileImage: '',
+      projectLabel: 'โครงการทดสอบ'
+    }
+    projects.value = [
+      { id: 'test-1', name: 'โครงการ Alpha', taigaUrl: '', template: DEFAULT_TEMPLATE },
+      { id: 'test-2', name: 'โครงการ Beta', taigaUrl: '', template: DEFAULT_TEMPLATE },
+      { id: 'test-3', name: 'โครงการ Gamma', taigaUrl: '', template: DEFAULT_TEMPLATE },
+    ]
+    selectedProjects.value = []
+    reports.value = []
+    lastReportDate.value = null
+    onboardingComplete.value = false
+    localStorage.setItem('hurryup_test_mode', 'true')
+  }
+
+  function logoutTestMode() {
+    localStorage.removeItem('hurryup_test_mode')
+  }
+
   function setMorningTemplate(template) {
     morningTemplate.value = template
     saveData()
@@ -590,6 +614,8 @@ export const useAppStore = defineStore('app', () => {
     syncAllToSupabase,
     loadFromSupabase,
     loadProfileFromSupabase,
+    loginAsTest,
+    logoutTestMode,
 
     // Constants
     DEFAULT_TEMPLATE
